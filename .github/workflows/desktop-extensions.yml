@@ -1,0 +1,135 @@
+name: Package Desktop Extensions
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  package-gnome-extension:
+    name: Package GNOME Extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glib-2.0-dev libglib2.0-dev-bin
+
+      - name: Compile schemas
+        run: |
+          cd gnome-extension/schemas
+          glib-compile-schemas .
+
+      - name: Create extension package
+        run: |
+          cd gnome-extension
+          zip -r ../redragon-volume-sync-gnome-extension.zip \
+            extension.js \
+            metadata.json \
+            schemas/
+
+      - name: Verify extension structure
+        run: |
+          unzip -l redragon-volume-sync-gnome-extension.zip
+
+      - name: Upload GNOME extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gnome-extension
+          path: redragon-volume-sync-gnome-extension.zip
+          retention-days: 30
+
+  package-cinnamon-applet:
+    name: Package Cinnamon Applet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create applet package
+        run: |
+          cd cinnamon-applet
+          zip -r ../redragon-volume-sync-cinnamon-applet.zip \
+            applet.js \
+            metadata.json
+
+      - name: Verify applet structure
+        run: |
+          unzip -l redragon-volume-sync-cinnamon-applet.zip
+
+      - name: Upload Cinnamon applet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinnamon-applet
+          path: redragon-volume-sync-cinnamon-applet.zip
+          retention-days: 30
+
+  create-release:
+    name: Create Release with Extensions
+    runs-on: ubuntu-latest
+    needs: [package-gnome-extension, package-cinnamon-applet]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download GNOME extension
+        uses: actions/download-artifact@v4
+        with:
+          name: gnome-extension
+
+      - name: Download Cinnamon applet
+        uses: actions/download-artifact@v4
+        with:
+          name: cinnamon-applet
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            redragon-volume-sync-gnome-extension.zip
+            redragon-volume-sync-cinnamon-applet.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Extensões Desktop
+
+            ### GNOME Shell Extension
+            Para instalar manualmente:
+            ```bash
+            mkdir -p ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano
+            unzip redragon-volume-sync-gnome-extension.zip -d ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano/
+            ```
+
+            Depois habilite em: **Extensões → Redragon Volume Sync**
+
+            **Ou publique em:** https://extensions.gnome.org
+
+            ---
+
+            ### Cinnamon Applet
+            Para instalar manualmente:
+            ```bash
+            mkdir -p ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano
+            unzip redragon-volume-sync-cinnamon-applet.zip -d ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano/
+            ```
+
+            Depois adicione em: **Configurações → Applets → Redragon Volume Sync**
+
+            **Ou publique em:** https://cinnamon-spices.linuxmint.com/applets
+
+            ---
+
+            📚 Veja [DISTRIBUTION.md](./DISTRIBUTION.md) para mais detalhes sobre publicação.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

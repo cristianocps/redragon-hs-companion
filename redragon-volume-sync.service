@@ -1,0 +1,19 @@
+[Unit]
+Description=Redragon Wireless Headset Volume Synchronizer
+After=sound.target pulseaudio.service
+Wants=sound.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/redragon_daemon.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,12 @@
+{
+  "uuid": "redragon-volume-sync@cristiano",
+  "name": "Redragon Volume Sync",
+  "description": "Sincroniza automaticamente os canais de volume de headsets Redragon sem fio",
+  "shell-version": [
+    "45",
+    "46",
+    "47"
+  ],
+  "url": "https://github.com/cristiano/h878-fixer",
+  "version": 1
+}

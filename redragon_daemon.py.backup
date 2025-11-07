@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""
+Redragon Volume Sync Daemon
+Monitora e sincroniza automaticamente os volumes de headsets Redragon sem fio
+
+Modo de operação:
+- Tenta usar eventos ALSA/udev para monitoramento em tempo real (--event-mode)
+- Fallback para polling se eventos não estiverem disponíveis (--poll-mode)
+- Modo automático detecta a melhor opção (padrão)
+"""
+
+import subprocess
+import time
+import signal
+import sys
+import logging
+import argparse
+from pathlib import Path
+from redragon_volume_sync import RedragonVolumeSync, H878VolumeSync
+
+
+class RedragonDaemon:
+    def __init__(self, mode='auto'):
+        self.running = True
+        self.sync = RedragonVolumeSync()
+        self.last_volumes = (None, None)
+        self.last_pipewire_volume = None
+        self.check_interval = 2  # segundos
+        self.mode = mode
+        self.use_events = False
+        self.sink_name = None
+        self.pipewire_monitor_process = None
+
+        # Configurar logging
+        log_dir = Path.home() / ".local" / "share" / "h878-fixer"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "daemon.log"
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+        # Detecta se eventos estão disponíveis
+        if mode == 'event' or mode == 'auto':
+            self.use_events = self._check_event_support()
+            if mode == 'event' and not self.use_events:
+                self.logger.error("Modo de eventos solicitado mas não disponível!")
+                sys.exit(1)
+
+        if self.use_events:
+            self.logger.info("🎯 Usando modo de EVENTOS (reativo)")
+        else:
+            self.logger.info("⏱️  Usando modo de POLLING (intervalo: {}s)".format(self.check_interval))
+
+    def _check_event_support(self):
+        """Verifica se o sistema suporta monitoramento por eventos"""
+        try:
+            # Verifica se alsactl está disponível
+            result = subprocess.run(
+                ['which', 'alsactl'],
+                capture_output=True,
+                check=False
+            )
+            has_alsactl = result.returncode == 0
+
+            # Verifica se udevadm está disponível
+            result = subprocess.run(
+                ['which', 'udevadm'],
+                capture_output=True,
+                check=False
+            )
+            has_udevadm = result.returncode == 0
+
+            if has_alsactl and has_udevadm:
+                self.logger.info("✓ Sistema suporta monitoramento por eventos")
+                return True
+            else:
+                missing = []
+                if not has_alsactl:
+                    missing.append('alsactl')
+                if not has_udevadm:
+                    missing.append('udevadm')
+                self.logger.info(f"⚠️  Comandos ausentes para eventos: {', '.join(missing)}")
+                return False
+
+        except Exception as e:
+            self.logger.warning(f"Erro ao verificar suporte a eventos: {e}")
+            return False
+
+    def signal_handler(self, signum, frame):
+        """Manipula sinais de término"""
+        self.logger.info(f"Recebido sinal {signum}, encerrando daemon...")
+        self.running = False
+
+    def wait_for_headset(self):
+        """Aguarda até que o headset seja detectado"""
+        self.logger.info("Aguardando conexão do headset H878...")
+
+        while self.running:
+            if self.sync.detect_card():
+                self.logger.info("Headset H878 detectado!")
+                # Detecta o sink do PipeWire
+                self._detect_pipewire_sink()
+                return True
+            time.sleep(5)
+
+        return False
+
+    def _detect_pipewire_sink(self):
+        """Detecta o sink do PipeWire para o headset Redragon"""
+        try:
+            result = subprocess.run(
+                ["pactl", "list", "sinks", "short"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Procura por sinks Redragon/XiiSound/Weltrend
+            for line in result.stdout.split('\n'):
+                if any(pattern in line for pattern in ['XiiSound', 'Weltrend', 'Redragon']):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        self.sink_name = parts[1]
+                        self.logger.info(f"✓ PipeWire sink detectado: {self.sink_name}")
+                        return True
+
+            self.logger.warning("⚠️  Sink do PipeWire não detectado")
+            return False
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Erro ao detectar sink do PipeWire: {e}")
+            return False
+
+    def _get_pipewire_volume(self):
+        """Obtém o volume atual do PipeWire (em porcentagem)"""
+        if not self.sink_name:
+            return None
+
+        try:
+            result = subprocess.run(
+                ["pactl", "get-sink-volume", self.sink_name],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Parse: "Volume: front-left: 65536 / 100% / 0,00 dB"
+            import re
+            match = re.search(r'(\d+)%', result.stdout)
+            if match:
+                return int(match.group(1))
+
+            return None
+
+        except subprocess.CalledProcessError:
+            return None
+
+    def _sync_pipewire_to_alsa(self):
+        """Sincroniza o volume do PipeWire para os controles ALSA"""
+        pw_volume = self._get_pipewire_volume()
+
+        if pw_volume is None:
+            return False
+
+        # Se o volume não mudou, não faz nada
+        if pw_volume == self.last_pipewire_volume:
+            return False
+
+        self.last_pipewire_volume = pw_volume
+
+        # Aplica o volume do PipeWire aos controles ALSA
+        self.logger.info(f"🔊 PipeWire volume mudou para {pw_volume}%, aplicando aos controles ALSA")
+
+        success = self.sync.set_volume(pw_volume, silent=True)
+
+        if success:
+            # Atualiza o volume armazenado
+            self.last_volumes = (pw_volume, pw_volume)
+
+        return success
+
+    def check_and_sync(self):
+        """Verifica e sincroniza os volumes se necessário
+
+        Estratégia:
+        1. Monitora o volume do PipeWire e aplica aos controles ALSA
+        2. Sincroniza PCM[0] (master) para PCM[1]
+        """
+        try:
+            # Re-detecta o headset se necessário
+            if not self.sync.card_id:
+                if not self.sync.detect_card():
+                    return False
+                self._detect_pipewire_sink()
+
+            # Debounce: não verifica se acabamos de definir
+            if self.sync.should_debounce():
+                return True
+
+            # Primeiro, sincroniza PipeWire → ALSA se necessário
+            self._sync_pipewire_to_alsa()
+
+            # Depois, verifica se PCM[0] e PCM[1] estão sincronizados
+            vol1, vol2 = self.sync.get_volumes()
+
+            if vol1 is None or vol2 is None:
+                self.logger.warning("Não foi possível obter volumes")
+                self.sync.card_id = None  # Força re-detecção
+                return False
+
+            # Verifica se mudou desde a última verificação
+            current_volumes = (vol1, vol2)
+
+            if current_volumes != self.last_volumes:
+                self.logger.debug(f"Volumes: PCM[0]={vol1}%, PCM[1]={vol2}%")
+
+                # Se dessincronizados, copia PCM[0] para PCM[1]
+                if vol1 != vol2:
+                    self.logger.info(f"Sincronizando PCM[1] para {vol1}% (copiando de PCM[0])")
+
+                    if self.sync.sync_from_master():
+                        self.last_volumes = (vol1, vol1)
+                    else:
+                        self.logger.error("Falha ao sincronizar volumes")
+                else:
+                    self.last_volumes = current_volumes
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Erro no check_and_sync: {e}")
+            self.sync.card_id = None
+            return False
+
+    def run(self):
+        """Loop principal do daemon"""
+        # Registrar handlers de sinal
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        signal.signal(signal.SIGINT, self.signal_handler)
+
+        self.logger.info("Redragon Volume Sync Daemon iniciado")
+
+        # Aguarda o headset na inicialização
+        if not self.wait_for_headset():
+            return
+
+        # Sincronização inicial
+        self.logger.info("Executando sincronização inicial...")
+        self.check_and_sync()
+
+        if self.use_events:
+            self._run_event_mode()
+        else:
+            self._run_polling_mode()
+
+        self.logger.info("Redragon Volume Sync Daemon encerrado")
+
+    def _run_event_mode(self):
+        """Executa daemon em modo de eventos"""
+        # Importa o daemon baseado em eventos
+        try:
+            from redragon_event_monitor import RedragonEventDaemon
+            event_daemon = RedragonEventDaemon()
+            # Copia estado atual
+            event_daemon.sync = self.sync
+            event_daemon.last_volumes = self.last_volumes
+            event_daemon.last_pipewire_volume = self.last_pipewire_volume
+            event_daemon.sink_name = self.sink_name
+            event_daemon.running = self.running
+
+            # Registra signal handlers
+            event_daemon.signal_handler = self.signal_handler
+
+            self.logger.info("Iniciando monitores de eventos...")
+            event_daemon.start_alsa_monitor()
+            event_daemon.start_udev_monitor()
+
+            # Loop principal - verifica PipeWire periodicamente E aguarda eventos ALSA
+            self.logger.info("Daemon ativo, monitorando PipeWire e aguardando eventos ALSA...")
+            while self.running:
+                # Verifica volume do PipeWire periodicamente (a cada 2 segundos)
+                # Isso é necessário porque mudanças via controles do sistema não
+                # disparam eventos ALSA quando o PipeWire usa volume em software
+                event_daemon.check_and_sync()
+                time.sleep(2)
+
+            # Cleanup
+            event_daemon.alsa_monitor.stop()
+            event_daemon.udev_monitor.stop()
+
+        except ImportError as e:
+            self.logger.error(f"Não foi possível importar módulo de eventos: {e}")
+            self.logger.info("Voltando para modo polling...")
+            self._run_polling_mode()
+        except Exception as e:
+            self.logger.error(f"Erro no modo de eventos: {e}", exc_info=True)
+            self.logger.info("Voltando para modo polling...")
+            self._run_polling_mode()
+
+    def _run_polling_mode(self):
+        """Executa daemon em modo de polling"""
+        # Loop principal
+        while self.running:
+            self.check_and_sync()
+            time.sleep(self.check_interval)
+
+
+# Alias para compatibilidade com código existente
+H878Daemon = RedragonDaemon
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Daemon de sincronização de volume para headsets Redragon sem fio",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Modos de operação:
+  auto     Detecta automaticamente o melhor modo (padrão)
+  event    Força uso de eventos ALSA/udev (requer alsactl e udevadm)
+  poll     Força uso de polling com intervalo fixo
+
+Exemplos:
+  %(prog)s              # Modo automático
+  %(prog)s --mode event # Força eventos
+  %(prog)s --mode poll  # Força polling
+        """
+    )
+
+    parser.add_argument(
+        '--mode',
+        choices=['auto', 'event', 'poll'],
+        default='auto',
+        help='Modo de monitoramento (padrão: auto)'
+    )
+
+    args = parser.parse_args()
+
+    daemon = RedragonDaemon(mode=args.mode)
+
+    try:
+        daemon.run()
+    except KeyboardInterrupt:
+        daemon.logger.info("Interrompido pelo usuário")
+    except Exception as e:
+        daemon.logger.error(f"Erro fatal: {e}", exc_info=True)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

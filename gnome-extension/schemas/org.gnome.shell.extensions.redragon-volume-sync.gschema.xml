@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.redragon-volume-sync" path="/org/gnome/shell/extensions/redragon-volume-sync/">
+    <key name="auto-sync" type="b">
+      <default>true</default>
+      <summary>Sincronização automática</summary>
+      <description>Sincronizar automaticamente os volumes quando detectadas mudanças</description>
+    </key>
+    <key name="check-interval" type="i">
+      <default>3</default>
+      <range min="1" max="30"/>
+      <summary>Intervalo de verificação</summary>
+      <description>Intervalo em segundos para verificar mudanças de volume</description>
+    </key>
+  </schema>
+</schemalist>
