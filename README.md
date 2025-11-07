@@ -1,48 +1,28 @@
 # Redragon HS Companion
 
-Complete solution for controlling the volume of **Redragon wireless headsets** (H878, H848, H510, etc.) on Linux.
+Volume control solution for Redragon wireless headsets (H878, H848, H510, etc.) on Linux.
 
-## 🎯 Problem
+## Problem
 
-Redragon wireless headsets have an issue on Linux where PipeWire only controls one of the headset's PCM channels (PCM[0]), leaving the other channel (PCM[1]) out of sync. This causes volume issues and unbalanced audio, causing most of time an issue where only one side of headset to work properly.
+Redragon wireless headsets have an issue on Linux where PipeWire only controls one of the headset's PCM channels, leaving the other out of sync. This causes volume imbalance and audio problems.
 
-## ✨ Features
+## Features
 
-- 🔧 **Fast CLI** - Command-line control with ~20ms response time
-- 🤖 **Sync Daemon** - Automatically keeps PCM[0] and PCM[1] synchronized
-- ⚡ **Control Daemon** - Unix socket server for fast control
-- 🎨 **Graphical Interface** - Support for GNOME Shell, Cinnamon, and KDE Plasma
-- 🚀 **Auto-detection** - Automatically detects when headset is connected
-- 🔊 **Analog Output** - Works perfectly with analog output (PCM[0]=100%, PCM[1]=variable)
-- 🎵 **Digital Output** - Also works with digital output (IEC958)
+- Fast command-line control (~20ms response)
+- Automatic PCM channel synchronization daemon
+- Unix socket server for instant control
+- Desktop widgets for GNOME Shell, Cinnamon, and KDE Plasma
+- Auto-detection of connected headsets
+- Support for both analog and digital outputs
 
-## 📋 Requirements
+## Requirements
 
 - Python 3
 - alsa-utils (amixer)
-- systemd (for daemons)
-- GNOME Shell 45+ / Cinnamon 5.0+ / KDE Plasma 6+ (for graphical interface)
+- systemd (optional, for daemons)
+- GNOME Shell 45+ / Cinnamon 5.0+ / KDE Plasma 6+ (optional, for GUI)
 
-### Installing dependencies
-
-**Ubuntu/Debian:**
-```bash
-sudo apt install python3 alsa-utils
-```
-
-**Fedora:**
-```bash
-sudo dnf install python3 alsa-utils
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -S python alsa-utils
-```
-
-## 🚀 Installation
-
-### Automatic Installation (Recommended)
+## Installation
 
 ```bash
 git clone https://github.com/cristianocps/redragon-hs-companion.git
@@ -50,218 +30,141 @@ cd redragon-hs-companion
 ./install.sh
 ```
 
-The installation script will:
-1. ✅ Check dependencies
-2. ✅ Install scripts to `~/.local/bin`
-3. ✅ Configure systemd services
-4. ✅ Install extension/applet/widget for your desktop environment
+The installer automatically:
+- Detects your distribution and package manager
+- Installs missing dependencies (python3, alsa-utils)
+- Installs scripts to `~/.local/bin`
+- Configures systemd services
+- Installs desktop widgets for your environment
+- Offers to enable and add widgets to panel automatically
 
-### Enable services
+**Supported distributions:** Ubuntu, Debian, Fedora, Arch Linux, openSUSE, Alpine, Gentoo  
+**Supported package managers:** apt, dnf, yum, pacman, zypper, apk, emerge
 
-```bash
-# Enable and start both daemons
-systemctl --user enable --now redragon-volume-sync.service
-systemctl --user enable --now redragon-control-daemon.service
-```
+The installer will ask if you want to:
+- Enable systemd services automatically
+- Enable GNOME extension (if using GNOME)
+- Add applet to panel (if using Cinnamon)
+- Add widget to panel (if using KDE Plasma)
 
-## 🎮 Usage
+## Usage
 
 ### Command Line
 
 ```bash
-# Show headset status
-redragon-volume status
-
-# Get current volume
-redragon-volume get
-
-# Set volume (0-100)
-redragon-volume 75
-
-# Increase/decrease volume
-redragon-volume +10
-redragon-volume -5
-
-# Mute/unmute (toggle)
-redragon-volume mute
+redragon-volume status        # Show headset status
+redragon-volume get           # Get current volume
+redragon-volume 75            # Set volume to 75%
+redragon-volume +10           # Increase volume
+redragon-volume -5            # Decrease volume
+redragon-volume mute          # Toggle mute
 ```
 
-### Graphical Interface
+### Desktop Widgets
 
-#### GNOME Shell
-1. Open **Extensions** (gnome-extensions)
-2. Enable **Redragon HS Companion**
-3. The icon will appear in the top bar
+**GNOME Shell:** Open Extensions and enable "Redragon HS Companion"  
+**Cinnamon:** Settings → Applets → Add "Redragon HS Companion"  
+**KDE Plasma:** Right-click panel → Add Widgets → "Redragon HS Companion"
 
-#### Cinnamon
-1. Open **Settings** → **Applets**
-2. Search for **Redragon HS Companion**
-3. Add to panel
+Widget controls:
+- Left click: Open volume control
+- Middle/Right click: Quick mute toggle
+- Scroll: Adjust volume (±5%)
 
-#### KDE Plasma
-1. Right-click on panel
-2. **Add Widgets**
-3. Search for **Redragon HS Companion**
-4. Drag to panel or system tray
+## Architecture
 
-### Interface Controls
-
-- **Left click**: Open control popup
-- **Middle/Right click**: Quick mute/unmute
-- **Scroll**: Increase/decrease volume (±5%)
-- **Slider**: Precise volume control
-- **"Use as audio output" button**: Set headset as default output
-
-## 🔧 How It Works
-
-### Architecture
-
-The project uses a two-daemon architecture for better performance and lower delays:
+Two-daemon design for performance:
 
 ```
 ┌─────────────────────────────────────────┐
-│  Interface (GNOME/Cinnamon/Plasma)      │
-│  or Bash Client (redragon-volume)       │
+│  Client (CLI / Desktop Widget)          │
 └──────────────┬──────────────────────────┘
-               │ ~20ms via Unix socket communication
+               │ Unix socket (~20ms)
                ▼
 ┌─────────────────────────────────────────┐
 │  Control Daemon                         │
-│  (redragon_control_daemon.py)           │
-│  • Accepts commands via socket          │
-│  • Sets volumes instantly               │
+│  Fast volume control via socket         │
 └──────────────┬──────────────────────────┘
-               │
                ▼
 ┌─────────────────────────────────────────┐
 │  ALSA (amixer)                          │
-│  • PCM[0] (2 channels, numid=9)        │
-│  • PCM[1] (1 channel, numid=10)        │
+│  PCM[0] and PCM[1] channels             │
 └──────────────▲──────────────────────────┘
-               │
-               │ monitors/syncs
                │
 ┌─────────────────────────────────────────┐
 │  Sync Daemon                            │
-│  (redragon_daemon.py)                   │
-│  • Digital output: PCM[0] → PCM[1]      │
-│  • Analog output: doesn't sync          │
+│  Monitors and syncs PCM channels        │
 └─────────────────────────────────────────┘
 ```
 
-### Analog vs Digital Output
+**Analog output:** PCM[0] stays at 100%, PCM[1] is controlled  
+**Digital output:** Both channels synchronized
 
-#### Analog Output (Default)
-- **PCM[0]**: Kept at **100%** fixed (avoids conflict with PipeWire)
-- **PCM[1]**: **Variable** control (0-100%)
-- PipeWire monitors PCM[0] but can't change it
-- Sync daemon does NOT interfere
-
-#### Digital Output (IEC958/S/PDIF)
-- **PCM[0]**: Synchronized with desired volume
-- **PCM[1]**: Synchronized with PCM[0]
-- PipeWire doesn't interfere
-- Sync daemon keeps both equal
-
-## 📊 Logs and Diagnostics
-
-### View daemon logs
-
-```bash
-# Sync daemon
-journalctl --user -u redragon-volume-sync -f
-
-# Control daemon
-journalctl --user -u redragon-control-daemon -f
-
-# Local logs
-tail -f ~/.local/share/redragon-hs-companion/daemon.log
-tail -f ~/.local/share/redragon-hs-companion/control-daemon.log
-```
-
-### Service status
-
-```bash
-systemctl --user status redragon-volume-sync.service
-systemctl --user status redragon-control-daemon.service
-```
-
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Headset not detected
 
 ```bash
-# Check if headset is connected
-lsusb | grep -i "redragon\|weltrend"
-
-# Check sound cards
-aplay -l
-
-# Test manual detection
-redragon-volume status
+lsusb | grep -i "redragon\|weltrend"    # Check USB connection
+aplay -l                                 # List sound cards
+redragon-volume status                   # Test detection
 ```
 
-### Volume not changing
+### Volume not working
 
 ```bash
-# Check if daemons are running
 systemctl --user status redragon-control-daemon.service
-
-# Check Unix socket
-ls -la $XDG_RUNTIME_DIR/redragon-control.sock
-
-# Restart daemons
 systemctl --user restart redragon-volume-sync.service
 systemctl --user restart redragon-control-daemon.service
 ```
 
-### Audio only on one side
+### Widget not showing
+
+**GNOME:** `gnome-extensions disable redragon-volume-sync@cristiano && gnome-extensions enable redragon-volume-sync@cristiano`  
+**Cinnamon:** Open Settings → Applets  
+**KDE:** `kquitapp6 plasmashell && plasmashell &`
+
+### View logs
 
 ```bash
-# Check ALSA volumes
-amixer -c <CARD_ID> sget PCM
-amixer -c <CARD_ID> cget numid=9   # PCM[0]
-amixer -c <CARD_ID> cget numid=10  # PCM[1]
-
-# Force sync
-redragon-volume 75
+journalctl --user -u redragon-volume-sync -f
+journalctl --user -u redragon-control-daemon -f
 ```
 
-### Graphical interface not showing
+## Manual Installation
 
-**GNOME:**
-```bash
-# Reload extensions
-gnome-extensions disable redragon-volume-sync@cristiano
-gnome-extensions enable redragon-volume-sync@cristiano
-```
+If you prefer manual dependency installation:
 
-**Cinnamon:**
-```bash
-# Reload applets
-cinnamon-settings applets
-```
+**Ubuntu/Debian:** `sudo apt update && sudo apt install -y python3 alsa-utils`  
+**Fedora:** `sudo dnf install -y python3 alsa-utils`  
+**Arch Linux:** `sudo pacman -S --noconfirm python alsa-utils`  
+**openSUSE:** `sudo zypper install -y python3 alsa-utils`  
+**Alpine:** `sudo apk add python3 alsa-utils`  
+**Gentoo:** `sudo emerge dev-lang/python media-sound/alsa-utils`
 
-**KDE Plasma:**
-```bash
-# Reload Plasma
-kquitapp6 plasmashell && plasmashell &
-```
-
-## 🗑️ Uninstallation
+## Uninstallation
 
 ```bash
 ./uninstall.sh
 ```
 
-Or manually:
+The uninstaller will:
+- Stop and disable systemd services
+- Remove all scripts and binaries
+- Disable and remove desktop widgets (GNOME/Cinnamon/KDE)
+- Remove widget from panel automatically
+- Ask if you want to remove logs
+
+Manual uninstallation:
 
 ```bash
 # Stop and disable services
-systemctl --user stop redragon-volume-sync.service
-systemctl --user stop redragon-control-daemon.service
-systemctl --user disable redragon-volume-sync.service
-systemctl --user disable redragon-control-daemon.service
+systemctl --user stop redragon-volume-sync.service redragon-control-daemon.service
+systemctl --user disable redragon-volume-sync.service redragon-control-daemon.service
+
+# Disable widgets
+gnome-extensions disable redragon-volume-sync@cristiano  # GNOME
+# For Cinnamon/KDE: remove from panel in Settings
 
 # Remove files
 rm -rf ~/.local/bin/redragon*
@@ -269,60 +172,40 @@ rm -rf ~/.config/systemd/user/redragon-*
 rm -rf ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano
 rm -rf ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano
 rm -rf ~/.local/share/plasma/plasmoids/redragon-volume-sync@cristiano
-
-# Reload systemd
 systemctl --user daemon-reload
 ```
 
-## 📝 Project Files
+## Project Structure
 
-### Python Scripts
-- `redragon_volume_sync.py` - Core library with ALSA control
-- `redragon_daemon.py` - PCM[0] ↔ PCM[1] sync daemon
-- `redragon_control_daemon.py` - Fast control daemon (Unix socket)
-
-### Client
-- `redragon-volume` - Fast bash client (~20ms)
-
-### Graphical Interfaces
-- `gnome-extension/` - GNOME Shell extension
-- `cinnamon-applet/` - Cinnamon applet
+- `redragon_volume_sync.py` - Core ALSA control library
+- `redragon_daemon.py` - PCM synchronization daemon
+- `redragon_control_daemon.py` - Unix socket control server
+- `redragon-volume` - Fast bash client
+- `gnome-extension/` - GNOME Shell widget
+- `cinnamon-applet/` - Cinnamon panel applet
 - `plasma-widget/` - KDE Plasma widget
+- `install.sh` - Automatic installer
+- `uninstall.sh` - Uninstaller
 
-### Installation
-- `install.sh` - Automatic installation script
-- `uninstall.sh` - Uninstallation script
+## Compatible Headsets
 
-## 🤝 Contributing
+Tested with:
+- Redragon H878 Wireless
+- Redragon H848 Bluetooth
+- Redragon H510 Zeus
 
-Contributions are welcome! Feel free to:
-- Report bugs
-- Suggest new features
-- Submit pull requests
-- Improve documentation
+Should work with any Redragon wireless headset using XiiSound/Weltrend USB driver.
 
-## 📜 License
+## Performance
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- Command-line latency: ~11-20ms
+- Memory usage: ~8-10MB per daemon
+- CPU usage: minimal (polling every 2-3 seconds)
 
-## 🎧 Compatible Headsets
+## License
 
-Tested and working with:
-- ✅ Redragon H878 Wireless
-- ✅ Redragon H848 Bluetooth
-- ✅ Redragon H510 Zeus
+MIT License - see [LICENSE](LICENSE) file for details.
 
-Should work with any Redragon wireless headset that uses the XiiSound/Weltrend USB driver.
+## Contributing
 
-## ⚡ Performance
-
-- **Bash client**: ~11-20ms latency
-- **Control daemon**: instant response via Unix socket
-- **Monitoring**: polling every 2-3 seconds (low CPU impact)
-- **Memory**: ~8-10MB per daemon
-
-## 🙏 Acknowledgments
-
-- Linux community for tools like ALSA, PulseAudio, and PipeWire
-- GNOME Shell, Cinnamon, and KDE Plasma developers
-- Users who reported bugs and tested solutions
+Contributions welcome. Report bugs, suggest features, or submit pull requests at the GitHub repository.
