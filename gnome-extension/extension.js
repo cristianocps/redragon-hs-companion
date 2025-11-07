@@ -1,7 +1,7 @@
 /* extension.js
  *
- * Redragon Volume Sync - Extensão GNOME
- * Sincroniza volumes de headsets Redragon sem fio
+ * Redragon Volume Sync - GNOME extension
+ * Synchronizes volumes of Redragon wireless headsets
  */
 
 import GObject from 'gi://GObject';
@@ -26,8 +26,10 @@ class RedragonIndicator extends PanelMenu.Button {
         this._isConnected = false;
         this._currentVolume = 0;
         this._syncTimeout = null;
+        this._volumeChangeTimeout = null;
+        this._updatingSlider = false;
 
-        // Ícone do painel
+        // Panel icon
         let icon = new St.Icon({
             icon_name: 'audio-headphones-symbolic',
             style_class: 'system-status-icon',
@@ -37,7 +39,7 @@ class RedragonIndicator extends PanelMenu.Button {
 
         // Label de status
         this._statusLabel = new St.Label({
-            text: 'Redragon: Detectando...',
+            text: 'Redragon: Detecting...',
             y_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
@@ -54,14 +56,14 @@ class RedragonIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Botão de sincronização manual
-        let syncButton = new PopupMenu.PopupMenuItem('🔄 Sincronizar Agora');
+        // Manual synchronization button
+        let syncButton = new PopupMenu.PopupMenuItem('🔄 Synchronize Now');
         syncButton.connect('activate', () => {
             this._syncVolumes();
         });
         this.menu.addMenuItem(syncButton);
 
-        // Slider de volume
+        // Volume slider
         this._volumeSlider = new PopupMenu.PopupBaseMenuItem({activate: false});
         let sliderIcon = new St.Icon({
             icon_name: 'audio-volume-high-symbolic',
@@ -78,24 +80,70 @@ class RedragonIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Configurações
+        // Settings
         let settingsButton = new PopupMenu.PopupMenuItem('⚙️ Configurações');
         settingsButton.connect('activate', () => {
             this._openSettings();
         });
         this.menu.addMenuItem(settingsButton);
 
-        // Iniciar monitoramento
+        // Connect scroll event
+        this.connect('scroll-event', (actor, event) => {
+            return this._onScrollEvent(actor, event);
+        });
+
+        // Start monitoring
         this._startMonitoring();
     }
 
+    _onScrollEvent(actor, event) {
+        if (!this._isConnected) return Clutter.EVENT_PROPAGATE;
+
+        let direction = event.get_scroll_direction();
+        let delta = 5;
+
+        if (direction === Clutter.ScrollDirection.UP) {
+            this._changeVolume(delta);
+        } else if (direction === Clutter.ScrollDirection.DOWN) {
+            this._changeVolume(-delta);
+        }
+
+        return Clutter.EVENT_STOP;
+    }
+
+    _changeVolume(delta) {
+        if (!this._isConnected) return;
+
+        let newVolume = Math.max(0, Math.min(100, this._currentVolume + delta));
+
+        try {
+            let scriptPath = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'redragon-volume']);
+            GLib.spawn_command_line_async(`${scriptPath} ${newVolume}`);
+            this._currentVolume = newVolume;
+            this._slider.value = newVolume / 100.0;
+            // Schedule update after a brief delay to confirm
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                this._getVolume();
+                return GLib.SOURCE_REMOVE;
+            });
+        } catch (e) {
+            log(`Redragon: Error adjusting volume: ${e}`);
+        }
+    }
+
     _startMonitoring() {
-        // Detecta o headset inicialmente
+        // Detect the headset initially
         this._detectHeadset();
 
-        // Monitora a cada 3 segundos
-        this._syncTimeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 3, () => {
-            this._checkAndSync();
+        // Monitor every 2 seconds
+        this._syncTimeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, () => {
+            // Update the volume whenever the headset is connected
+            if (this._isConnected) {
+                this._getVolume();
+            } else {
+                // If not connected, try to detect
+                this._detectHeadset();
+            }
             return GLib.SOURCE_CONTINUE;
         });
     }
@@ -105,19 +153,19 @@ class RedragonIndicator extends PanelMenu.Button {
             let [success, stdout, stderr] = GLib.spawn_command_line_sync('aplay -l');
             if (success) {
                 let output = new TextDecoder().decode(stdout);
-                // Detecta qualquer headset Redragon sem fio
+                // Detect any Redragon wireless headset
                 let patterns = ['H878', 'H848', 'H510', 'Wireless headset', 'XiiSound', 'Weltrend', 'Redragon'];
                 this._isConnected = patterns.some(pattern => output.includes(pattern));
 
                 if (this._isConnected) {
-                    this._statusLabel.text = 'Redragon: ✓ Conectado';
+                    this._statusLabel.text = 'Redragon: ✓ Connected';
                     this._getVolume();
                 } else {
-                    this._statusLabel.text = 'Redragon: ✗ Desconectado';
+                    this._statusLabel.text = 'Redragon: ✗ Disconnected';
                 }
             }
         } catch (e) {
-            log(`Redragon: Erro ao detectar headset: ${e}`);
+            log(`Redragon: Error detecting headset: ${e}`);
         }
     }
 
@@ -130,21 +178,24 @@ class RedragonIndicator extends PanelMenu.Button {
 
             if (success) {
                 let output = new TextDecoder().decode(stdout);
-                // Parse volume from status output
-                let match = output.match(/PCM Volume.*:\s*(\d+)%/);
+                // Search for the Effective Volume (PCM[1] - real control)
+                let match = output.match(/Volume Efetivo:\s*(\d+)%/);
                 if (match) {
                     this._currentVolume = parseInt(match[1]);
+                    // Update slider without triggering event
+                    this._updatingSlider = true;
                     this._slider.value = this._currentVolume / 100.0;
+                    this._updatingSlider = false;
                 }
             }
         } catch (e) {
-            log(`Redragon: Erro ao obter volume: ${e}`);
+            log(`Redragon: Error getting volume: ${e}`);
         }
     }
 
     _syncVolumes() {
         if (!this._isConnected) {
-            Main.notify('Redragon Volume Sync', 'Headset não conectado');
+            Main.notify('Redragon Volume Sync', 'Headset not connected');
             return;
         }
 
@@ -153,29 +204,38 @@ class RedragonIndicator extends PanelMenu.Button {
             let [success, stdout, stderr] = GLib.spawn_command_line_sync(`${scriptPath} status`);
 
             if (success) {
-                Main.notify('Redragon Volume Sync', 'Volume atualizado!');
+                Main.notify('Redragon Volume Sync', 'Volume updated!');
                 this._getVolume();
             } else {
-                Main.notify('Redragon Volume Sync', 'Erro ao atualizar volume');
+                Main.notify('Redragon Volume Sync', 'Error updating volume');
             }
         } catch (e) {
-            log(`Redragon: Erro ao sincronizar: ${e}`);
+            log(`Redragon: Error synchronizing: ${e}`);
             Main.notify('Redragon Volume Sync', `Erro: ${e}`);
         }
     }
 
     _onSliderChanged() {
-        if (!this._isConnected) return;
+        if (!this._isConnected || this._updatingSlider) return;
 
         let volume = Math.round(this._slider.value * 100);
+        this._currentVolume = volume;
 
-        try {
-            let scriptPath = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'redragon-volume']);
-            GLib.spawn_command_line_async(`${scriptPath} ${volume}`);
-            this._currentVolume = volume;
-        } catch (e) {
-            log(`Redragon: Erro ao definir volume: ${e}`);
+        // Debounce: only execute command after 100ms without changes
+        if (this._volumeChangeTimeout) {
+            GLib.source_remove(this._volumeChangeTimeout);
         }
+
+        this._volumeChangeTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            this._volumeChangeTimeout = null;
+            try {
+                let scriptPath = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'redragon-volume']);
+                GLib.spawn_command_line_async(`${scriptPath} ${volume}`);
+            } catch (e) {
+                log(`Redragon: Error setting volume: ${e}`);
+            }
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _checkAndSync() {
@@ -193,7 +253,7 @@ class RedragonIndicator extends PanelMenu.Button {
                 Gio.SubprocessFlags.NONE
             );
         } catch (e) {
-            log(`Redragon: Erro ao abrir configurações: ${e}`);
+            log(`Redragon: Error opening settings: ${e}`);
         }
     }
 
@@ -202,13 +262,17 @@ class RedragonIndicator extends PanelMenu.Button {
             GLib.source_remove(this._syncTimeout);
             this._syncTimeout = null;
         }
+        if (this._volumeChangeTimeout) {
+            GLib.source_remove(this._volumeChangeTimeout);
+            this._volumeChangeTimeout = null;
+        }
         super.destroy();
     }
 });
 
 export default class RedragonExtension extends Extension {
     enable() {
-        log('Redragon Volume Sync: Habilitando extensão');
+        log('Redragon Volume Sync: Enabling extension');
 
         this._settings = this.getSettings();
         this._indicator = new RedragonIndicator(this._settings, this.path);
@@ -216,7 +280,7 @@ export default class RedragonExtension extends Extension {
     }
 
     disable() {
-        log('Redragon Volume Sync: Desabilitando extensão');
+        log('Redragon Volume Sync: Disabling extension');
 
         if (this._indicator) {
             this._indicator.destroy();

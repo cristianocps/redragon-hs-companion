@@ -4,25 +4,61 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
 
 # Virtual environments
 venv/
 env/
 ENV/
+.venv/
 
-# IDE
+# IDE / Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
 # Logs
 *.log
+*.log.*
 
 # OS
 .DS_Store
 Thumbs.db
+._*
+
+# Backup files
+*.backup
+*.bak
+*.old
+*~
+
+# Test scripts (keep in repo for reference, but ignore output)
+test_*.output
+test_results/
+
+# Compiled QML cache (Plasma widget)
+*.qmlc
+
+# Local installation test directories
+.install-test/
+.test-env/
+
+# Daemon socket files (created at runtime)
+*.sock
+
+# User data directories (created at runtime)
+.local/
+.config/systemd/user/*.service
 
 # Claude
 .claude/

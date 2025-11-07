@@ -9,6 +9,7 @@ INSTALL_DIR="$HOME/.local/bin"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 GNOME_EXT_DIR="$HOME/.local/share/gnome-shell/extensions"
 CINNAMON_APPLET_DIR="$HOME/.local/share/cinnamon/applets"
+PLASMA_WIDGET_DIR="$HOME/.local/share/plasma/plasmoids"
 
 # Cores para output
 RED='\033[0;31m'
@@ -19,7 +20,7 @@ NC='\033[0m' # No Color
 
 print_header() {
     echo -e "${BLUE}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║    Redragon Volume Sync - Instalador        ║${NC}"
+    echo -e "${BLUE}║    Redragon HS Companion - Installer        ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════════╝${NC}"
     echo
 }
@@ -37,7 +38,7 @@ print_info() {
 }
 
 check_dependencies() {
-    echo "Verificando dependências..."
+    echo "Checking dependencies..."
 
     local missing_deps=()
 
@@ -50,56 +51,50 @@ check_dependencies() {
     fi
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
-        print_error "Dependências faltando: ${missing_deps[*]}"
+        print_error "Missing dependencies: ${missing_deps[*]}"
         echo
-        echo "Instale com:"
+        echo "Install with:"
         echo "  sudo apt install ${missing_deps[*]}"
         exit 1
     fi
 
-    print_success "Todas as dependências instaladas"
+    print_success "All dependencies installed"
 }
 
 install_scripts() {
     echo
-    echo "Instalando scripts..."
+    echo "Installing scripts..."
 
     mkdir -p "$INSTALL_DIR"
 
-    # Instala script principal
+    # Install base library (used by daemons)
     cp "$SCRIPT_DIR/redragon_volume_sync.py" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/redragon_volume_sync.py"
-    print_success "Script CLI instalado em $INSTALL_DIR/redragon_volume_sync.py"
+    print_success "Library installed at $INSTALL_DIR/redragon_volume_sync.py"
 
-    # Cria link simbólico
-    if [ ! -L "$INSTALL_DIR/redragon-sync" ]; then
-        ln -s "$INSTALL_DIR/redragon_volume_sync.py" "$INSTALL_DIR/redragon-sync"
-        print_success "Link simbólico criado: redragon-sync"
-    fi
-
-    # Instala script de controle de volume
+    # Install fast bash client (20ms via socket)
     cp "$SCRIPT_DIR/redragon-volume" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon-volume"
-    print_success "Script de controle instalado em $INSTALL_DIR/redragon-volume"
+    print_success "Fast client installed: redragon-volume"
 
-    # Instala daemon
+    # Install PCM sync daemon
     cp "$SCRIPT_DIR/redragon_daemon.py" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon_daemon.py"
-    print_success "Daemon instalado em $INSTALL_DIR/redragon_daemon.py"
+    print_success "Sync daemon installed at $INSTALL_DIR/redragon_daemon.py"
 
-    # Instala monitor de eventos
-    cp "$SCRIPT_DIR/redragon_event_monitor.py" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/redragon_event_monitor.py"
-    print_success "Monitor de eventos instalado em $INSTALL_DIR/redragon_event_monitor.py"
+    # Install fast control daemon
+    cp "$SCRIPT_DIR/redragon_control_daemon.py" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/redragon_control_daemon.py"
+    print_success "Control daemon installed at $INSTALL_DIR/redragon_control_daemon.py"
 }
 
 install_systemd_service() {
     echo
-    echo "Instalando serviço systemd..."
+    echo "Installing systemd services..."
 
     mkdir -p "$SYSTEMD_DIR"
 
-    # Cria arquivo de serviço com path correto
+    # Create service file with correct path
+    # PCM sync service
     cat > "$SYSTEMD_DIR/redragon-volume-sync.service" <<EOF
 [Unit]
 Description=Redragon Wireless Headset Volume Synchronizer
@@ -122,32 +117,59 @@ PrivateTmp=true
 WantedBy=default.target
 EOF
 
-    print_success "Serviço systemd instalado"
+    print_success "PCM sync service installed"
 
-    # Recarrega systemd
+    # Fast control daemon service
+    cat > "$SYSTEMD_DIR/redragon-control-daemon.service" <<EOF
+[Unit]
+Description=Redragon Control Daemon - Fast Volume Control Server
+After=sound.target
+
+[Service]
+Type=simple
+ExecStart=$INSTALL_DIR/redragon_control_daemon.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+EOF
+
+    print_success "Fast control daemon service installed"
+
+    # Reload systemd
     systemctl --user daemon-reload
-    print_success "Systemd recarregado"
+    print_success "Systemd reloaded"
 
-    # Pergunta se deseja habilitar o serviço
+    # Ask if should enable services
     echo
-    read -p "Deseja habilitar o serviço para iniciar automaticamente? (s/n) " -n 1 -r
+    read -p "Do you want to enable the services to start automatically? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[SsYy]$ ]]; then
         systemctl --user enable redragon-volume-sync.service
+        systemctl --user enable redragon-control-daemon.service
         systemctl --user start redragon-volume-sync.service
-        print_success "Serviço habilitado e iniciado"
+        systemctl --user start redragon-control-daemon.service
+        print_success "Services enabled and started"
     else
-        print_info "Você pode iniciar o serviço manualmente com:"
+        print_info "You can start the services manually with:"
         print_info "  systemctl --user start redragon-volume-sync.service"
+        print_info "  systemctl --user start redragon-control-daemon.service"
     fi
 }
 
 install_gnome_extension() {
     echo
-    echo "Instalando extensão GNOME Shell..."
+    echo "Installing GNOME Shell extension..."
 
     if ! command -v gnome-shell &> /dev/null; then
-        print_info "GNOME Shell não detectado, pulando instalação da extensão"
+        print_info "GNOME Shell not detected, skipping extension installation"
         return
     fi
 
@@ -159,22 +181,22 @@ install_gnome_extension() {
     cp "$SCRIPT_DIR/gnome-extension/extension.js" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/schemas/org.gnome.shell.extensions.redragon-volume-sync.gschema.xml" "$ext_dir/schemas/"
 
-    # Compila schemas
+    # Compile schemas
     if [ -d "$ext_dir/schemas" ]; then
         glib-compile-schemas "$ext_dir/schemas/"
-        print_success "Schemas compilados"
+        print_success "Schemas compiled"
     fi
 
-    print_success "Extensão GNOME instalada"
-    print_info "Habilite a extensão em: Extensões → Redragon Volume Sync"
+    print_success "GNOME extension installed"
+    print_info "Enable the extension at: Extensions → Redragon HS Companion"
 }
 
 install_cinnamon_applet() {
     echo
-    echo "Instalando applet Cinnamon..."
+    echo "Installing Cinnamon applet..."
 
     if [ "$XDG_CURRENT_DESKTOP" != "X-Cinnamon" ]; then
-        print_info "Cinnamon não detectado, pulando instalação do applet"
+        print_info "Cinnamon not detected, skipping applet installation"
         return
     fi
 
@@ -184,31 +206,54 @@ install_cinnamon_applet() {
     cp "$SCRIPT_DIR/cinnamon-applet/metadata.json" "$applet_dir/"
     cp "$SCRIPT_DIR/cinnamon-applet/applet.js" "$applet_dir/"
 
-    print_success "Applet Cinnamon instalado"
-    print_info "Adicione o applet ao painel em: Configurações → Applets → Redragon Volume Sync"
+    print_success "Cinnamon applet installed"
+    print_info "Add the applet to your panel at: Settings → Applets → Redragon HS Companion"
+}
+
+install_plasma_widget() {
+    echo
+    echo "Installing KDE Plasma widget..."
+
+    if ! command -v plasmashell &> /dev/null; then
+        print_info "KDE Plasma not detected, skipping widget installation"
+        return
+    fi
+
+    local widget_dir="$PLASMA_WIDGET_DIR/redragon-volume-sync@cristiano"
+    mkdir -p "$widget_dir"
+
+    cp -r "$SCRIPT_DIR/plasma-widget/"* "$widget_dir/"
+
+    print_success "Plasma widget installed"
+    print_info "Add the widget to your panel: Right-click panel → Add Widgets → Redragon HS Companion"
+
+    # Try to reload Plasma if possible
+    if command -v kquitapp6 &> /dev/null && command -v plasmashell &> /dev/null; then
+        print_info "To apply changes, run: kquitapp6 plasmashell && plasmashell &"
+    fi
 }
 
 test_installation() {
     echo
-    echo "Testando instalação..."
+    echo "Testing installation..."
 
     if "$INSTALL_DIR/redragon_volume_sync.py" status &> /dev/null; then
-        print_success "Script funcionando corretamente"
+        print_success "Script working correctly"
     else
-        print_error "Erro ao executar script"
+        print_error "Error running script"
     fi
 
     echo
-    echo "Verificando suporte a eventos..."
+    echo "Checking event support..."
     if command -v alsactl &> /dev/null && command -v udevadm &> /dev/null; then
-        print_success "Monitoramento por EVENTOS disponível (zero latência)"
+        print_success "EVENT monitoring available (zero latency)"
     else
-        print_info "Usando modo POLLING (verifica a cada 2s)"
+        print_info "Using POLLING mode (checks every 2s)"
         if ! command -v alsactl &> /dev/null; then
-            print_info "  Para eventos: instale alsa-utils"
+            print_info "  For events: install alsa-utils"
         fi
         if ! command -v udevadm &> /dev/null; then
-            print_info "  Para eventos: systemd já deve estar instalado"
+            print_info "  For events: systemd should already be installed"
         fi
     fi
 }
@@ -216,29 +261,26 @@ test_installation() {
 print_usage_info() {
     echo
     echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║       Instalação Concluída! 🎉            ║${NC}"
+    echo -e "${GREEN}║       Installation Complete! 🎉            ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
     echo
-    echo "Comandos disponíveis:"
-    echo "  redragon-sync status    - Mostra status do headset"
-    echo "  redragon-sync sync      - Sincroniza volumes"
-    echo "  redragon-sync set 75    - Define volume para 75%"
+    echo "Available commands:"
+    echo "  redragon-volume status  - Show headset status"
+    echo "  redragon-volume get     - Get current volume"
+    echo "  redragon-volume 75      - Set volume to 75%"
+    echo "  redragon-volume +10     - Increase volume by 10%"
+    echo "  redragon-volume -5      - Decrease volume by 5%"
+    echo "  redragon-volume mute    - Mute/unmute"
     echo
-    echo "Controle de volume (para saída analógica):"
-    echo "  redragon-volume 75      - Define volume para 75%"
-    echo "  redragon-volume up      - Aumenta 5%"
-    echo "  redragon-volume down    - Diminui 5%"
-    echo "  redragon-volume mute    - Muta/desmuta"
-    echo
-    echo "Serviço systemd:"
-    echo "  systemctl --user status redragon-volume-sync    - Ver status"
-    echo "  systemctl --user start redragon-volume-sync     - Iniciar"
-    echo "  systemctl --user stop redragon-volume-sync      - Parar"
-    echo "  systemctl --user enable redragon-volume-sync    - Habilitar na inicialização"
+    echo "Systemd services:"
+    echo "  systemctl --user status redragon-volume-sync    - View status"
+    echo "  systemctl --user start redragon-volume-sync     - Start"
+    echo "  systemctl --user stop redragon-volume-sync      - Stop"
+    echo "  systemctl --user enable redragon-volume-sync    - Enable on startup"
     echo
     echo "Logs:"
-    echo "  journalctl --user -u redragon-volume-sync -f    - Ver logs do daemon"
-    echo "  tail -f ~/.local/share/h878-fixer/daemon.log - Ver logs locais"
+    echo "  journalctl --user -u redragon-volume-sync -f    - View daemon logs"
+    echo "  tail -f ~/.local/share/redragon-hs-companion/daemon.log - View local logs"
     echo
 }
 
@@ -250,13 +292,17 @@ main() {
     install_scripts
     install_systemd_service
 
-    # Tenta instalar extensão/applet apropriado
+    # Try to install appropriate extension/applet/widget
     if command -v gnome-shell &> /dev/null; then
         install_gnome_extension
     fi
 
     if [ "$XDG_CURRENT_DESKTOP" = "X-Cinnamon" ]; then
         install_cinnamon_applet
+    fi
+
+    if command -v plasmashell &> /dev/null; then
+        install_plasma_widget
     fi
 
     test_installation

@@ -1,135 +1,74 @@
 #!/bin/bash
-# Redragon Volume Control
-# Script wrapper para controlar o volume de headsets Redragon via ALSA (com sincronização automática)
+# Fast client for the Redragon Control Daemon
+# Uses Unix socket to avoid Python startup overhead
 
-set -e
+SOCKET="${XDG_RUNTIME_DIR:-/tmp}/redragon-control.sock"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SYNC_SCRIPT="$HOME/.local/bin/redragon_volume_sync.py"
-
-# Se não está instalado, tenta outros caminhos
-if [ ! -f "$SYNC_SCRIPT" ]; then
-    # Tenta link simbólico
-    SYNC_SCRIPT="$HOME/.local/bin/redragon-sync"
-fi
-
-if [ ! -f "$SYNC_SCRIPT" ]; then
-    # Tenta diretório local
-    SYNC_SCRIPT="$SCRIPT_DIR/redragon_volume_sync.py"
-fi
-
-usage() {
-    cat << EOF
-Redragon Volume Control
-
-Controla o volume de headsets Redragon sem fio (H878, H848, etc) via ALSA.
-
-Uso:
-  $(basename $0) <volume>              Define volume (0-100)
-  $(basename $0) +<valor>              Aumenta volume
-  $(basename $0) -<valor>              Diminui volume
-  $(basename $0) up                    Aumenta 5%
-  $(basename $0) down                  Diminui 5%
-  $(basename $0) mute                  Muta/desmuta
-  $(basename $0) status                Mostra status atual
-
-Exemplos:
-  $(basename $0) 75                    Define volume para 75%
-  $(basename $0) +10                   Aumenta 10%
-  $(basename $0) -5                    Diminui 5%
-  $(basename $0) up                    Aumenta 5%
-  $(basename $0) down                  Diminui 5%
-
-Nota: Este script ajusta os controles ALSA diretamente.
-      O daemon irá sincronizar automaticamente PCM[0] e PCM[1].
-EOF
+# Check if the daemon is running
+if [ ! -S "$SOCKET" ]; then
+    echo "Error: Daemon is not running" >&2
+    echo "Execute: systemctl --user start redragon-control-daemon" >&2
     exit 1
+fi
+
+# Function to send command via socket
+send_command() {
+    local cmd="$1"
+    echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null || {
+        echo "Error communicating with daemon" >&2
+        return 1
+    }
 }
 
-get_current_volume() {
-    "$SYNC_SCRIPT" status 2>/dev/null | grep "PCM Volume (2 canais)" | grep -oP '\d+(?=%)'
-}
-
-set_volume() {
-    local vol=$1
-
-    # Limita entre 0 e 100
-    if [ $vol -lt 0 ]; then
-        vol=0
-    elif [ $vol -gt 100 ]; then
-        vol=100
-    fi
-
-    # IMPORTANTE: Coloca PipeWire em 100% para desativar controle de software
-    # Isso evita que o PipeWire interfira com os controles ALSA
-    local SINK=$(pactl list sinks short 2>/dev/null | grep -E 'XiiSound|Weltrend|Redragon' | awk '{print $2}' | head -n 1)
-    if [ -n "$SINK" ]; then
-        pactl set-sink-volume "$SINK" 100% 2>/dev/null || true
-        sleep 0.2  # Aguarda PipeWire estabilizar
-    fi
-
-    "$SYNC_SCRIPT" set $vol
-
-    # Aguarda daemon sincronizar PCM[0] → PCM[1]
-    sleep 0.5
-}
-
+# Process arguments
 if [ $# -eq 0 ]; then
-    usage
+    echo "Usage: $0 <volume|status|get|mute>"
+    echo "  $0 50          # Define volume to 50%"
+    echo "  $0 status      # Show status"
+    echo "  $0 get         # Get current volume"
+    echo "  $0 mute        # Mute/unmute (toggle)"
+    exit 1
 fi
 
 case "$1" in
     status)
-        "$SYNC_SCRIPT" status
+        send_command "status"
         ;;
-    up)
-        current=$(get_current_volume)
-        new=$((current + 5))
-        set_volume $new
-        echo "Volume: $new%"
-        ;;
-    down)
-        current=$(get_current_volume)
-        new=$((current - 5))
-        set_volume $new
-        echo "Volume: $new%"
-        ;;
-    mute)
-        current=$(get_current_volume)
-        if [ "$current" -eq 0 ]; then
-            # Desmuta (volta para 50%)
-            set_volume 50
-            echo "Desmutado: 50%"
+    get)
+        response=$(send_command "get")
+        if [[ "$response" == OK:* ]]; then
+            volume="${response#OK: }"
+            echo "Volume: $volume%"
         else
-            # Muta
-            set_volume 0
-            echo "Mutado"
+            echo "$response" >&2
+            exit 1
         fi
         ;;
-    +*)
-        # Aumenta
-        increment="${1:1}"
-        current=$(get_current_volume)
-        new=$((current + increment))
-        set_volume $new
-        echo "Volume: $new%"
-        ;;
-    -*)
-        # Diminui
-        decrement="${1:1}"
-        current=$(get_current_volume)
-        new=$((current - decrement))
-        set_volume $new
-        echo "Volume: $new%"
+    mute)
+        response=$(send_command "mute")
+        if [[ "$response" == OK:* ]]; then
+            echo "OK"
+        else
+            echo "$response" >&2
+            exit 1
+        fi
         ;;
     [0-9]*)
-        # Define valor absoluto
-        set_volume $1
-        echo "Volume: $1%"
+        volume="$1"
+        if [ "$volume" -lt 0 ] || [ "$volume" -gt 100 ]; then
+            echo "Volume must be between 0 and 100" >&2
+            exit 1
+        fi
+        response=$(send_command "set $volume")
+        if [[ "$response" == OK:* ]]; then
+            echo "Volume: ${response#OK: }%"
+        else
+            echo "$response" >&2
+            exit 1
+        fi
         ;;
     *)
-        echo "Erro: Comando desconhecido: $1"
-        echo
-        usage
+        echo "Invalid command: $1" >&2
+        exit 1
         ;;
 esac

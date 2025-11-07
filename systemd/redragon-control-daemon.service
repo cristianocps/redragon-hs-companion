@@ -1,0 +1,12 @@
+[Unit]
+Description=Redragon Control Daemon - Fast Volume Control Server
+After=sound.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/redragon_control_daemon.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

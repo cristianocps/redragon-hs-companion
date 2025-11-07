@@ -1,0 +1,19 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "noreply@example.com",
+        "Name": "cristianocps"
+      }
+    ],
+    "Category": "Multimedia",
+    "Description": "Volume control for Redragon wireless headsets (H878, H848, etc)",
+    "Icon": "audio-volume-high",
+    "Id": "redragon-volume-sync@cristiano",
+    "Name": "Redragon HS Companion",
+    "Version": "1.0",
+    "Website": "https://github.com/cristianocps/redragon-hs-companion"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}
