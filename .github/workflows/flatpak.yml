@@ -26,15 +26,15 @@ jobs:
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: redragon-volume-sync.flatpak
-          manifest-path: com.github.cristiano.RedragonVolumeSync.yaml
+          bundle: redragon-hs-companion.flatpak
+          manifest-path: com.github.cristianocps.RedragonHSCompanion.yaml
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4
         with:
-          name: redragon-volume-sync-flatpak
-          path: redragon-volume-sync.flatpak
+          name: redragon-hs-companion-flatpak
+          path: redragon-hs-companion.flatpak
           retention-days: 30
 
   publish-flathub:
@@ -50,12 +50,12 @@ jobs:
       - name: Download Flatpak bundle
         uses: actions/download-artifact@v4
         with:
-          name: redragon-volume-sync-flatpak
+          name: redragon-hs-companion-flatpak
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: redragon-volume-sync.flatpak
+          files: redragon-hs-companion.flatpak
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -64,12 +64,12 @@ jobs:
 
       - name: Publish to Flathub (info)
         run: |
-          echo "Para publicar no Flathub:"
+          echo "To publish to Flathub:"
           echo "1. Fork https://github.com/flathub/flathub"
-          echo "2. Adicione seu manifest em flathub/com.github.cristiano.RedragonVolumeSync"
-          echo "3. Crie um Pull Request"
+          echo "2. Add your manifest to flathub/com.github.cristianocps.RedragonHSCompanion"
+          echo "3. Create a Pull Request"
           echo ""
-          echo "Documentação: https://docs.flathub.org/docs/for-app-authors/submission/"
+          echo "Documentation: https://docs.flathub.org/docs/for-app-authors/submission/"
 
   test-install:
     name: Test Installation
@@ -86,13 +86,13 @@ jobs:
       - name: Download Flatpak bundle
         uses: actions/download-artifact@v4
         with:
-          name: redragon-volume-sync-flatpak
+          name: redragon-hs-companion-flatpak
 
       - name: Install Flatpak bundle
         run: |
-          flatpak install -y --bundle redragon-volume-sync.flatpak
+          flatpak install -y --bundle redragon-hs-companion.flatpak
 
       - name: Test Flatpak installation
         run: |
-          flatpak list | grep RedragonVolumeSync
-          echo "✅ Flatpak instalado com sucesso!"
+          flatpak list | grep RedragonHSCompanion
+          echo "✅ Flatpak installed successfully!"

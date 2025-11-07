@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Redragon HS Companion
+Comment=Volume control for Redragon wireless headsets
+Exec=redragon-hs-companion-setup
+Icon=com.github.cristianocps.RedragonHSCompanion
+Terminal=true
+Type=Application
+Categories=System;Settings;Audio;
+Keywords=redragon;headset;volume;audio;alsa;
+StartupNotify=true
