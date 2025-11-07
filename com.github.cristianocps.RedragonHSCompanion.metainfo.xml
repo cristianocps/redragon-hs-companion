@@ -40,15 +40,15 @@
   <developer_name>cristianocps</developer_name>
 
   <releases>
-    <release version="2.0.0" date="2025-01-07">
+    <release version="1.0.0" date="2025-11-06">
       <description>
-        <p>Major update with improved architecture:</p>
+        <p>Initial release with support for GNOME Shell, Cinnamon, and KDE Plasma:</p>
         <ul>
-          <li>Fast control daemon with Unix socket (~20ms response)</li>
-          <li>Support for KDE Plasma widgets</li>
-          <li>Improved analog output handling</li>
-          <li>English documentation</li>
-          <li>Updated project name to Redragon HS Companion</li>
+          <li>Fast CLI client with ~20ms response time</li>
+          <li>Automatic PCM channel synchronization daemon</li>
+          <li>Graphical interface for GNOME Shell, Cinnamon, and KDE Plasma</li>
+          <li>Auto-detection of connected headsets</li>
+          <li>Support for both analog and digital audio outputs</li>
         </ul>
       </description>
     </release>

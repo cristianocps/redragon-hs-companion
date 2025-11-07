@@ -1,6 +1,6 @@
 app-id: com.github.cristianocps.RedragonHSCompanion
 runtime: org.freedesktop.Platform
-runtime-version: '23.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 command: redragon-hs-companion-setup
 
@@ -84,8 +84,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/cristianocps/redragon-hs-companion.git
-        tag: v2.0.0
-        commit: HEAD
+        branch: master
 
       - type: file
         path: flatpak-setup.sh

@@ -4,11 +4,11 @@ Complete solution for controlling the volume of **Redragon wireless headsets** (
 
 ## 🎯 Problem
 
-Redragon wireless headsets have an issue on Linux where PipeWire only controls one of the headset's PCM channels (PCM[0]), leaving the other channel (PCM[1]) out of sync. This causes volume issues and unbalanced audio.
+Redragon wireless headsets have an issue on Linux where PipeWire only controls one of the headset's PCM channels (PCM[0]), leaving the other channel (PCM[1]) out of sync. This causes volume issues and unbalanced audio, causing most of time an issue where only one side of headset to work properly.
 
 ## ✨ Features
 
-- 🔧 **Fast Client** - Command-line control with ~20ms response time
+- 🔧 **Fast CLI** - Command-line control with ~20ms response time
 - 🤖 **Sync Daemon** - Automatically keeps PCM[0] and PCM[1] synchronized
 - ⚡ **Control Daemon** - Unix socket server for fast control
 - 🎨 **Graphical Interface** - Support for GNOME Shell, Cinnamon, and KDE Plasma
@@ -116,14 +116,14 @@ redragon-volume mute
 
 ### Architecture
 
-The project uses a two-daemon architecture for maximum performance:
+The project uses a two-daemon architecture for better performance and lower delays:
 
 ```
 ┌─────────────────────────────────────────┐
 │  Interface (GNOME/Cinnamon/Plasma)      │
 │  or Bash Client (redragon-volume)       │
 └──────────────┬──────────────────────────┘
-               │ ~20ms via Unix socket
+               │ ~20ms via Unix socket communication
                ▼
 ┌─────────────────────────────────────────┐
 │  Control Daemon                         │
