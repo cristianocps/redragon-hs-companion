@@ -14,6 +14,7 @@ Redragon wireless headsets have an issue on Linux where PipeWire only controls o
 - Desktop widgets for GNOME Shell, Cinnamon, and KDE Plasma
 - Auto-detection of connected headsets
 - Support for both analog and digital outputs
+- Multilingual interface (English, Portuguese, Spanish)
 
 ## Requirements
 
@@ -70,6 +71,15 @@ Widget controls:
 - Left click: Open volume control
 - Middle/Right click: Quick mute toggle
 - Scroll: Adjust volume (±5%)
+
+### Internationalization
+
+The desktop widgets automatically detect your system language and display text in:
+- **English** (default)
+- **Portuguese** (Português)
+- **Spanish** (Español)
+
+Language is detected from `LANG` or `LANGUAGE` environment variables.
 
 ## Architecture
 

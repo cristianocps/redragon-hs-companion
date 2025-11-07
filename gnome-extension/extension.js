@@ -16,6 +16,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Slider from 'resource:///org/gnome/shell/ui/slider.js';
 
+import {Translator} from './translations.js';
+
 const RedragonIndicator = GObject.registerClass(
 class RedragonIndicator extends PanelMenu.Button {
     _init(settings, extensionPath) {
@@ -28,6 +30,7 @@ class RedragonIndicator extends PanelMenu.Button {
         this._syncTimeout = null;
         this._volumeChangeTimeout = null;
         this._updatingSlider = false;
+        this._translator = new Translator();
 
         // Panel icon
         let icon = new St.Icon({
@@ -39,7 +42,7 @@ class RedragonIndicator extends PanelMenu.Button {
 
         // Label de status
         this._statusLabel = new St.Label({
-            text: 'Redragon: Detecting...',
+            text: 'Redragon: ' + this._translator._('detecting'),
             y_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
@@ -57,7 +60,7 @@ class RedragonIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         // Manual synchronization button
-        let syncButton = new PopupMenu.PopupMenuItem('🔄 Synchronize Now');
+        let syncButton = new PopupMenu.PopupMenuItem('🔄 ' + this._translator._('synchronize_now'));
         syncButton.connect('activate', () => {
             this._syncVolumes();
         });
@@ -81,7 +84,7 @@ class RedragonIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         // Settings
-        let settingsButton = new PopupMenu.PopupMenuItem('⚙️ Configurações');
+        let settingsButton = new PopupMenu.PopupMenuItem('⚙️ ' + this._translator._('settings'));
         settingsButton.connect('activate', () => {
             this._openSettings();
         });
@@ -158,10 +161,10 @@ class RedragonIndicator extends PanelMenu.Button {
                 this._isConnected = patterns.some(pattern => output.includes(pattern));
 
                 if (this._isConnected) {
-                    this._statusLabel.text = 'Redragon: ✓ Connected';
+                    this._statusLabel.text = 'Redragon: ✓ ' + this._translator._('connected');
                     this._getVolume();
                 } else {
-                    this._statusLabel.text = 'Redragon: ✗ Disconnected';
+                    this._statusLabel.text = 'Redragon: ✗ ' + this._translator._('disconnected');
                 }
             }
         } catch (e) {
@@ -195,7 +198,7 @@ class RedragonIndicator extends PanelMenu.Button {
 
     _syncVolumes() {
         if (!this._isConnected) {
-            Main.notify('Redragon Volume Sync', 'Headset not connected');
+            Main.notify('Redragon Volume Sync', this._translator._('headset_not_connected'));
             return;
         }
 
@@ -204,14 +207,14 @@ class RedragonIndicator extends PanelMenu.Button {
             let [success, stdout, stderr] = GLib.spawn_command_line_sync(`${scriptPath} status`);
 
             if (success) {
-                Main.notify('Redragon Volume Sync', 'Volume updated!');
+                Main.notify('Redragon Volume Sync', this._translator._('volume_updated'));
                 this._getVolume();
             } else {
-                Main.notify('Redragon Volume Sync', 'Error updating volume');
+                Main.notify('Redragon Volume Sync', this._translator._('error_updating'));
             }
         } catch (e) {
             log(`Redragon: Error synchronizing: ${e}`);
-            Main.notify('Redragon Volume Sync', `Erro: ${e}`);
+            Main.notify('Redragon Volume Sync', this._translator._('error') + `: ${e}`);
         }
     }
 

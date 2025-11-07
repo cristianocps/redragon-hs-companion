@@ -5,6 +5,60 @@ const GLib = imports.gi.GLib;
 const Mainloop = imports.mainloop;
 const Util = imports.misc.util;
 
+// Translations
+const TRANSLATIONS = {
+    'en': {
+        'detecting': 'Detecting...',
+        'connected': 'Connected',
+        'not_found': 'Not found',
+        'script_not_installed': 'Script not installed',
+        'error': 'Error',
+        'mute': 'Mute',
+        'unmute': 'Unmute',
+        'use_as_output': 'Use as audio output',
+        'set_as_default': '%s set as default output'
+    },
+    'pt': {
+        'detecting': 'Detectando...',
+        'connected': 'Conectado',
+        'not_found': 'Não encontrado',
+        'script_not_installed': 'Script não instalado',
+        'error': 'Erro',
+        'mute': 'Mutar',
+        'unmute': 'Desmutar',
+        'use_as_output': 'Usar como saída de áudio',
+        'set_as_default': '%s definido como saída padrão'
+    },
+    'es': {
+        'detecting': 'Detectando...',
+        'connected': 'Conectado',
+        'not_found': 'No encontrado',
+        'script_not_installed': 'Script no instalado',
+        'error': 'Error',
+        'mute': 'Silenciar',
+        'unmute': 'Activar Sonido',
+        'use_as_output': 'Usar como salida de audio',
+        'set_as_default': '%s establecido como salida predeterminada'
+    }
+};
+
+function getTranslator() {
+    let lang = GLib.getenv('LANG') || GLib.getenv('LANGUAGE') || 'en_US.UTF-8';
+    let langCode = lang.split('_')[0].toLowerCase();
+    
+    if (!TRANSLATIONS[langCode]) {
+        langCode = 'en';
+    }
+    
+    return function(key, param) {
+        let text = TRANSLATIONS[langCode][key] || TRANSLATIONS['en'][key] || key;
+        if (param) {
+            text = text.replace('%s', param);
+        }
+        return text;
+    };
+}
+
 class RedragonVolumeApplet extends Applet.TextIconApplet {
     constructor(metadata, orientation, panel_height, instance_id) {
         super(orientation, panel_height, instance_id);
@@ -13,6 +67,9 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
         this.orientation = orientation;
 
         try {
+            // Initialize translator
+            this._ = getTranslator();
+            
             // State
             this.isConnected = false;
             this.deviceName = "Redragon";
@@ -54,7 +111,7 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
 
     _buildMenu() {
         // Status compact - uses simple label in item
-        let statusItem = new PopupMenu.PopupMenuItem("Detectando...", { reactive: false });
+        let statusItem = new PopupMenu.PopupMenuItem(this._('detecting'), { reactive: false });
         statusItem.label.style = "font-size: 9pt;";
         this.statusLabel = statusItem.label;
         this.menu.addMenuItem(statusItem);
@@ -79,14 +136,14 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         // Mute/unmute button
-        this.muteItem = new PopupMenu.PopupMenuItem("🔇 Mutar");
+        this.muteItem = new PopupMenu.PopupMenuItem("🔇 " + this._('mute'));
         this.muteItem.connect('activate', () => {
             this.toggleMute();
         });
         this.menu.addMenuItem(this.muteItem);
 
         // Button to set as default output
-        let setDefaultItem = new PopupMenu.PopupMenuItem("🔊 Usar como saída de áudio");
+        let setDefaultItem = new PopupMenu.PopupMenuItem("🔊 " + this._('use_as_output'));
         setDefaultItem.connect('activate', () => {
             this.setAsDefaultSink();
         });
@@ -158,7 +215,7 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
 
     detectDevice() {
         if (!this.scriptAvailable) {
-            this.statusLabel.set_text("❌ Script not installed");
+            this.statusLabel.set_text("❌ " + this._('script_not_installed'));
             this.isConnected = false;
             return;
         }
@@ -180,13 +237,13 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
                     this.updateVolume();
                 } else {
                     this.isConnected = false;
-                    this.statusLabel.set_text("❌ Not found");
+                    this.statusLabel.set_text("❌ " + this._('not_found'));
                 }
             });
         } catch (e) {
             global.logError("Redragon: Error detecting: " + e);
             this.isConnected = false;
-            this.statusLabel.set_text("❌ Erro");
+            this.statusLabel.set_text("❌ " + this._('error'));
         }
     }
 
@@ -222,8 +279,9 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
         try {
             Util.spawn_async(['pactl', 'set-default-sink', this.sinkName], () => {
                 // Show success notification
+                let message = this._('set_as_default', this.deviceName);
                 Util.spawnCommandLine('notify-send "Redragon Volume" "' +
-                    this.deviceName + ' set as default output" -i audio-headphones');
+                    message + '" -i audio-headphones');
             });
         } catch (e) {
             global.logError("Redragon: Error setting default sink: " + e);
@@ -247,7 +305,8 @@ class RedragonVolumeApplet extends Applet.TextIconApplet {
 
                     // Update mute button text
                     if (this.muteItem) {
-                        this.muteItem.label.set_text(this.isMuted ? "🔊 Desmutar" : "🔇 Mutar");
+                        let muteText = this.isMuted ? "🔊 " + this._('unmute') : "🔇 " + this._('mute');
+                        this.muteItem.label.set_text(muteText);
                     }
 
                     // Update slider without triggering event

@@ -4,6 +4,7 @@ import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
+import "../code/translations.js" as Translations
 
 PlasmoidItem {
     id: root
@@ -113,7 +114,8 @@ PlasmoidItem {
     function setAsDefaultSink() {
         if (isConnected && sinkName) {
             executable.exec("pactl set-default-sink " + sinkName)
-            executable.exec("notify-send 'Redragon Volume' '" + deviceName + " definido como saída padrão' -i audio-headphones")
+            var message = Translations._('set_as_default', [deviceName])
+            executable.exec("notify-send 'Redragon Volume' '" + message + "' -i audio-headphones")
         }
     }
 
@@ -214,7 +216,7 @@ PlasmoidItem {
             // Status compacto
             PlasmaComponents3.Label {
                 id: statusLabel
-                text: isConnected ? "✓ " + deviceName : "❌ Não encontrado"
+                text: isConnected ? "✓ " + deviceName : "❌ " + Translations._('not_found')
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 Layout.fillWidth: true
             }
@@ -286,14 +288,14 @@ PlasmoidItem {
             PlasmaComponents3.Button {
                 id: muteButton
                 Layout.fillWidth: true
-                text: isMuted ? "🔊 Desmutar" : "🔇 Mutar"
+                text: isMuted ? "🔊 " + Translations._('unmute') : "🔇 " + Translations._('mute')
                 onClicked: toggleMute()
             }
 
             // Botão para definir como saída padrão
             PlasmaComponents3.Button {
                 Layout.fillWidth: true
-                text: "🔊 Usar como saída de áudio"
+                text: "🔊 " + Translations._('use_as_output')
                 onClicked: setAsDefaultSink()
             }
 
