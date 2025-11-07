@@ -71,17 +71,17 @@ install_scripts() {
     cp "$SCRIPT_DIR/redragon_volume_sync.py" "$INSTALL_DIR/"
     print_success "Library installed at $INSTALL_DIR/redragon_volume_sync.py"
 
-    # Install fast bash client (20ms via socket)
+    # Install CLI client (20ms via socket)
     cp "$SCRIPT_DIR/redragon-volume" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon-volume"
-    print_success "Fast client installed: redragon-volume"
+    print_success "CLI client installed: redragon-volume"
 
     # Install PCM sync daemon
     cp "$SCRIPT_DIR/redragon_daemon.py" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon_daemon.py"
     print_success "Sync daemon installed at $INSTALL_DIR/redragon_daemon.py"
 
-    # Install fast control daemon
+    # Install control daemon
     cp "$SCRIPT_DIR/redragon_control_daemon.py" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon_control_daemon.py"
     print_success "Control daemon installed at $INSTALL_DIR/redragon_control_daemon.py"
@@ -122,7 +122,7 @@ EOF
     # Fast control daemon service
     cat > "$SYSTEMD_DIR/redragon-control-daemon.service" <<EOF
 [Unit]
-Description=Redragon Control Daemon - Fast Volume Control Server
+Description=Redragon Control Daemon - Volume Control Server
 After=sound.target
 
 [Service]

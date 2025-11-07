@@ -1,5 +1,5 @@
 [Unit]
-Description=Redragon Control Daemon - Fast Volume Control Server
+Description=Redragon Control Daemon - Volume Control Server
 After=sound.target
 
 [Service]
