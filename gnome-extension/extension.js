@@ -34,7 +34,6 @@ class RedragonIndicator extends PanelMenu.Button {
         this._volumeChangeTimeout = null;
         this._updatingSlider = false;
         this._translator = new Translator();
-        this._osdHideTimeout = null;
 
         // Panel icon (dynamic)
         this._panelIcon = new St.Icon({
@@ -43,15 +42,6 @@ class RedragonIndicator extends PanelMenu.Button {
         });
 
         this.add_child(this._panelIcon);
-
-        // Volume label next to icon (for OSD effect)
-        this._panelLabel = new St.Label({
-            text: '',
-            y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'system-status-icon',
-            visible: false,  // Start hidden
-        });
-        this.add_child(this._panelLabel);
 
         // Label de status
         this._statusLabel = new St.Label({
@@ -150,22 +140,24 @@ class RedragonIndicator extends PanelMenu.Button {
     }
 
     _showVolumeOSD() {
-        // Show volume percentage temporarily next to the icon
-        this._panelLabel.text = ` ${this._currentVolume}%`;
-        this._panelLabel.visible = true;
-
-        // Clear previous timeout
-        if (this._osdHideTimeout) {
-            GLib.source_remove(this._osdHideTimeout);
+        // Show native GNOME OSD (like the image - centered overlay with icon and progress bar)
+        try {
+            if (Main.osdWindowManager) {
+                let monitor = -1; // -1 = primary monitor
+                let iconName = this._panelIcon.icon_name;
+                let level = this._currentVolume / 100.0;
+                
+                // Create GIcon from icon name (required by OSD)
+                let gicon = Gio.Icon.new_for_string(iconName);
+                
+                // Show OSD with icon and volume bar (native GNOME behavior)
+                // This is instant and doesn't wait for the actual volume command
+                Main.osdWindowManager.show(monitor, gicon, null, level, null);
+            }
+        } catch (e) {
+            log(`Redragon: ERROR in _showVolumeOSD: ${e}`);
+            logError(e);
         }
-
-        // Hide after 2 seconds
-        this._osdHideTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-            this._panelLabel.text = '';
-            this._panelLabel.visible = false;
-            this._osdHideTimeout = null;
-            return GLib.SOURCE_REMOVE;
-        });
     }
 
     _onScrollEvent(actor, event) {
@@ -180,7 +172,8 @@ class RedragonIndicator extends PanelMenu.Button {
             this._changeVolume(-delta);
         }
 
-        // Show OSD with current volume
+        // Show OSD immediately (after volume is updated in UI)
+        // This gives instant visual feedback without waiting for the command
         this._showVolumeOSD();
 
         return Clutter.EVENT_STOP;
@@ -192,7 +185,7 @@ class RedragonIndicator extends PanelMenu.Button {
         let newVolume = Math.max(0, Math.min(100, this._currentVolume + delta));
 
         if (newVolume !== this._currentVolume) {
-            // Update UI immediately
+            // Update UI immediately for instant feedback
             this._currentVolume = newVolume;
             this._isMuted = (newVolume === 0);
             this._volumeLabel.text = newVolume + ' %';
@@ -203,7 +196,7 @@ class RedragonIndicator extends PanelMenu.Button {
             this._slider.value = newVolume / 100.0;
             this._updatingSlider = false;
 
-            // Execute command
+            // Execute command in background (don't wait)
             try {
                 let scriptPath = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'redragon-volume']);
                 GLib.spawn_command_line_async(`${scriptPath} ${newVolume}`);
@@ -391,10 +384,6 @@ class RedragonIndicator extends PanelMenu.Button {
         if (this._volumeChangeTimeout) {
             GLib.source_remove(this._volumeChangeTimeout);
             this._volumeChangeTimeout = null;
-        }
-        if (this._osdHideTimeout) {
-            GLib.source_remove(this._osdHideTimeout);
-            this._osdHideTimeout = null;
         }
         super.destroy();
     }

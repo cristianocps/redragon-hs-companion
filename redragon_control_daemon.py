@@ -50,11 +50,25 @@ class RedragonControlDaemon:
         cmd = parts[0]
 
         try:
+            # Try to detect headset if not connected
+            if not self.sync.card_id:
+                self.logger.info("Headset not detected, attempting to reconnect...")
+                if not self.sync.detect_card():
+                    return "ERROR: headset not detected"
+                else:
+                    device_info = f"{self.sync.device_name} (card {self.sync.card_id})"
+                    self.logger.info(f"Headset reconnected: {device_info}")
+            
             if cmd == "set" and len(parts) == 2:
                 volume = int(parts[1])
                 if self.sync.set_volume(volume, silent=True):
                     return f"OK: {volume}"
                 else:
+                    # Try to reconnect and retry once
+                    self.logger.warning("Failed to set volume, attempting reconnection...")
+                    self.sync.card_id = None
+                    if self.sync.detect_card() and self.sync.set_volume(volume, silent=True):
+                        return f"OK: {volume}"
                     return "ERROR: failed to set volume"
 
             elif cmd == "get":
@@ -65,6 +79,9 @@ class RedragonControlDaemon:
                     effective_vol = vol2 if is_analog else vol1
                     return f"OK: {effective_vol}"
                 else:
+                    # Try to reconnect
+                    self.logger.warning("Failed to get volume, headset may have disconnected")
+                    self.sync.card_id = None
                     return "ERROR: failed to get volume"
 
             elif cmd == "status":
@@ -130,7 +147,10 @@ class RedragonControlDaemon:
         self.logger.info(f"Socket: {self.socket_path}")
 
         if not self.sync.card_id:
-            self.logger.warning("Headset not detected, waiting for connection...")
+            self.logger.warning("Headset not detected on startup, will auto-detect on first command...")
+        else:
+            device_info = f"{self.sync.device_name} (card {self.sync.card_id})"
+            self.logger.info(f"Headset detected on startup: {device_info}")
 
         while self.running:
             try:
