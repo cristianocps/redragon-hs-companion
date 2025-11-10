@@ -9,5 +9,6 @@
   ],
   "url": "https://github.com/cristianocps/redragon-hs-companion",
   "author": "cristianocps",
-  "version": 2
+  "version": 2,
+  "settings-schema": "org.gnome.shell.extensions.redragon-volume-sync"
 }

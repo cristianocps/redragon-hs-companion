@@ -4,6 +4,8 @@
  * Supports: English, Portuguese, Spanish
  */
 
+import GLib from 'gi://GLib';
+
 export const translations = {
     'en': {
         // Status

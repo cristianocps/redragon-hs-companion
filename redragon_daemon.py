@@ -19,6 +19,8 @@ class RedragonDaemonSimple:
         self.sync = RedragonVolumeSync()
         self.last_volumes = (None, None)
         self.check_interval = 2
+        self.error_count = 0
+        self.max_errors = 3  # Reconnect after 3 consecutive errors
 
         # Configure logging
         log_dir = Path.home() / ".local" / "share" / "redragon-hs-companion"
@@ -43,7 +45,8 @@ class RedragonDaemonSimple:
         self.logger.info("Waiting for headset connection...")
         while self.running:
             if self.sync.detect_card():
-                self.logger.info("Headset detected!")
+                device_info = f"{self.sync.device_name} (card {self.sync.card_id})"
+                self.logger.info(f"Headset detected: {device_info}")
                 return True
             time.sleep(5)
         return False
@@ -57,8 +60,16 @@ class RedragonDaemonSimple:
         """
         try:
             if not self.sync.card_id:
+                self.logger.info("Card ID lost, attempting to detect headset...")
                 if not self.sync.detect_card():
+                    self.error_count += 1
+                    if self.error_count >= self.max_errors:
+                        self.logger.warning(f"Failed to detect headset {self.error_count} times, will keep retrying...")
                     return False
+                else:
+                    device_info = f"{self.sync.device_name} (card {self.sync.card_id})"
+                    self.logger.info(f"Headset reconnected successfully: {device_info}")
+                    self.error_count = 0
 
             if self.sync.should_debounce():
                 return True
@@ -69,9 +80,20 @@ class RedragonDaemonSimple:
             vol1, vol2 = self.sync.get_volumes()
 
             if vol1 is None or vol2 is None:
-                self.logger.warning("Failed to get volumes")
-                self.sync.card_id = None
+                self.error_count += 1
+                self.logger.warning(f"Failed to get volumes (error {self.error_count}/{self.max_errors})")
+                
+                # Force reconnection after consecutive errors
+                if self.error_count >= self.max_errors:
+                    self.logger.warning("Too many errors, forcing headset re-detection...")
+                    self.sync.card_id = None
+                    self.error_count = 0
                 return False
+
+            # Reset error count on successful read
+            if self.error_count > 0:
+                self.logger.info("Volume read successful, error count reset")
+                self.error_count = 0
 
             # On analog output: does not synchronize (PCM[0]=100% fixed, PCM[1]=variable)
             if is_analog:
@@ -87,6 +109,7 @@ class RedragonDaemonSimple:
                     self.last_volumes = (vol1, vol1)
                 else:
                     self.logger.error("Failed to synchronize volumes")
+                    self.error_count += 1
             else:
                 if self.last_volumes != (vol1, vol2):
                     self.logger.debug(f"Digital output: volumes synchronized PCM[0]={vol1}%, PCM[1]={vol2}%")
@@ -95,8 +118,14 @@ class RedragonDaemonSimple:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error in check_and_sync: {e}")
-            self.sync.card_id = None
+            self.error_count += 1
+            self.logger.error(f"Error in check_and_sync: {e} (error {self.error_count}/{self.max_errors})")
+            
+            # Force reconnection after consecutive errors
+            if self.error_count >= self.max_errors:
+                self.logger.warning("Too many errors, forcing headset re-detection...")
+                self.sync.card_id = None
+                self.error_count = 0
             return False
 
     def run(self):
@@ -107,6 +136,15 @@ class RedragonDaemonSimple:
 
         if not self.wait_for_headset():
             return
+
+        # Try to restore saved volume state
+        self.logger.info("Attempting to restore saved volume state...")
+        if self.sync.restore_volume(silent=True):
+            saved_vol = self.sync._load_volume_state()
+            if saved_vol is not None:
+                self.logger.info(f"Volume restored to {saved_vol}%")
+        else:
+            self.logger.info("No saved volume state found or restoration failed")
 
         self.logger.info("Executing initial synchronization...")
         self.check_and_sync()

@@ -10,9 +10,12 @@ Compatible with:
 
 import subprocess
 import sys
+import os
 import argparse
 import re
 import time
+import json
+from pathlib import Path
 from typing import Tuple, Optional, List
 
 
@@ -36,16 +39,28 @@ class RedragonVolumeSync:
         self.device_name = None
         self.last_set_time = 0
         self.debounce_delay = 0.5  # seconds
+        
+        # Volume state persistence
+        self.state_dir = Path.home() / ".local" / "share" / "redragon-hs-companion"
+        self.state_file = self.state_dir / "volume_state.json"
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        
         self.detect_card()
 
     def detect_card(self) -> bool:
         """Detects automatically wireless headsets Redragon"""
         try:
+            # Force English locale for consistent output
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
             result = subprocess.run(
                 ["aplay", "-l"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
 
             # If a custom pattern was provided, use only it
@@ -53,10 +68,10 @@ class RedragonVolumeSync:
 
             # Search for the card using the patterns
             for line in result.stdout.split('\n'):
-                if 'placa' in line.lower():
+                if 'card' in line.lower():
                     for pattern in patterns_to_check:
                         if re.search(pattern, line, re.IGNORECASE):
-                            match = re.search(r'placa (\d+):', line)
+                            match = re.search(r'card (\d+):', line, re.IGNORECASE)
                             if match:
                                 self.card_id = match.group(1)
                                 # Extract the device name
@@ -79,11 +94,17 @@ class RedragonVolumeSync:
             return None, None
 
         try:
+            # Force English locale for consistent output
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
             result = subprocess.run(
                 ["amixer", "-c", self.card_id, "contents"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
 
             pcm_vol1 = None
@@ -137,8 +158,12 @@ class RedragonVolumeSync:
             # Update timestamp of the last set
             self.last_set_time = time.time()
 
-            if success and not silent:
-                print(f"✓ Volume synchronized to {volume}%")
+            if success:
+                # Save volume state to disk
+                self._save_volume_state(volume)
+                
+                if not silent:
+                    print(f"✓ Volume synchronized to {volume}%")
 
             return success
 
@@ -163,6 +188,7 @@ class RedragonVolumeSync:
         """
         try:
             is_analog = self._is_analog_output()
+            print(f"is_analog: {is_analog}")
 
             if is_analog:
                 # ANALOG OUTPUT: PCM[0]=100% fixed, PCM[1]=variable
@@ -204,11 +230,17 @@ class RedragonVolumeSync:
     def _is_analog_output(self) -> bool:
         """Detects if the analog output is active"""
         try:
+            # Force English locale for consistent output
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
             result = subprocess.run(
                 ["pactl", "list", "cards"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
 
             # Search for the Redragon card
@@ -217,7 +249,7 @@ class RedragonVolumeSync:
                 if any(pattern in line for pattern in ['XiiSound', 'Weltrend', 'Redragon', 'H878']):
                     in_redragon_card = True
 
-                if in_redragon_card and 'Perfil ativo:' in line:
+                if in_redragon_card and 'Active Profile:' in line:
                     return 'analog' in line
 
             return False
@@ -227,11 +259,17 @@ class RedragonVolumeSync:
     def _get_pipewire_sink(self) -> Optional[str]:
         """Gets the name of the PipeWire sink for the headset"""
         try:
+            # Force English locale for consistent output
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
             result = subprocess.run(
                 ["pactl", "list", "sinks", "short"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
 
             # Search for the Redragon sink
@@ -239,7 +277,7 @@ class RedragonVolumeSync:
                 if any(pattern in line for pattern in ['XiiSound', 'Weltrend', 'Redragon']):
                     parts = line.split()
                     if len(parts) >= 2:
-                        return parts[1]  # Nome do sink
+                        return parts[1]  # Sink name
 
             return None
         except:
@@ -337,6 +375,42 @@ class RedragonVolumeSync:
             target = max(vol1, vol2)
 
         return self.set_volume(target, silent=True)
+
+    def _save_volume_state(self, volume: int) -> None:
+        """Save volume state to disk for persistence across reboots"""
+        try:
+            state = {
+                "volume": volume,
+                "device": self.device_name or "Unknown",
+                "card_id": self.card_id,
+                "timestamp": time.time()
+            }
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            # Silent fail - not critical
+            pass
+
+    def _load_volume_state(self) -> Optional[int]:
+        """Load saved volume state from disk"""
+        try:
+            if self.state_file.exists():
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                    return state.get("volume")
+        except Exception as e:
+            # Silent fail - return None if can't read
+            pass
+        return None
+
+    def restore_volume(self, silent: bool = False) -> bool:
+        """Restore volume from saved state"""
+        saved_volume = self._load_volume_state()
+        if saved_volume is not None:
+            if not silent:
+                print(f"🔄 Restoring saved volume: {saved_volume}%")
+            return self.set_volume(saved_volume, silent=silent)
+        return False
 
     def show_status(self) -> None:
         """Shows the current status of the headset"""

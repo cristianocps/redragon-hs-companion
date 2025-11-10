@@ -409,6 +409,7 @@ install_gnome_extension() {
 
     cp "$SCRIPT_DIR/gnome-extension/metadata.json" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/extension.js" "$ext_dir/"
+    cp "$SCRIPT_DIR/gnome-extension/translations.js" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/schemas/org.gnome.shell.extensions.redragon-volume-sync.gschema.xml" "$ext_dir/schemas/"
 
     # Compile schemas
