@@ -87,7 +87,10 @@ class RedragonIndicator extends PanelMenu.Button {
         this._slider.connect('notify::value', () => {
             this._onSliderChanged();
         });
-        this._volumeSlider.add_child(this._slider.actor);
+        // In GNOME Shell 45+, Slider.Slider might be the actor itself
+        // Try .actor property first, fall back to slider directly if undefined
+        let sliderActor = (this._slider.actor !== undefined) ? this._slider.actor : this._slider;
+        this._volumeSlider.add_child(sliderActor);
         this.menu.addMenuItem(this._volumeSlider);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());

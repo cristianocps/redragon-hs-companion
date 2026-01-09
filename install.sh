@@ -407,21 +407,133 @@ install_gnome_extension() {
     mkdir -p "$ext_dir"
     mkdir -p "$ext_dir/schemas"
 
+    # Copy extension files
     cp "$SCRIPT_DIR/gnome-extension/metadata.json" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/extension.js" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/translations.js" "$ext_dir/"
     cp "$SCRIPT_DIR/gnome-extension/schemas/org.gnome.shell.extensions.redragon-volume-sync.gschema.xml" "$ext_dir/schemas/"
 
-    # Compile schemas
-    if [ -d "$ext_dir/schemas" ]; then
-        glib-compile-schemas "$ext_dir/schemas/"
-        print_success "Schemas compiled"
+    # Set proper permissions (readable by user)
+    chmod -R u+r "$ext_dir"
+    chmod u+x "$ext_dir"
+
+    # Verify required files exist
+    if [ ! -f "$ext_dir/metadata.json" ] || [ ! -f "$ext_dir/extension.js" ]; then
+        print_error "Failed to copy extension files"
+        return
     fi
 
-    print_success "GNOME extension installed"
+    # Verify metadata.json is valid JSON and UUID matches directory name
+    local uuid=$(grep -o '"uuid":\s*"[^"]*"' "$ext_dir/metadata.json" | cut -d'"' -f4)
+    if [ "$uuid" != "redragon-volume-sync@cristiano" ]; then
+        print_error "UUID mismatch in metadata.json: expected 'redragon-volume-sync@cristiano', found '$uuid'"
+        return
+    fi
+
+    # Auto-detect and add current GNOME Shell version to metadata.json
+    if command -v gnome-shell &> /dev/null; then
+        # Extract major version number (e.g., "49" from "GNOME Shell 49.0")
+        local shell_version=$(gnome-shell --version 2>/dev/null | sed -n 's/.* \([0-9]\+\).*/\1/p' | head -1)
+        if [ -n "$shell_version" ]; then
+            # Check if this version is already in the shell-version array
+            if ! grep -q "\"$shell_version\"" "$ext_dir/metadata.json"; then
+                print_info "Adding GNOME Shell $shell_version to metadata.json"
+                # Use Python or sed to add the version to the array
+                if command -v python3 &> /dev/null; then
+                    python3 << EOF
+import json
+import sys
+
+with open("$ext_dir/metadata.json", "r") as f:
+    data = json.load(f)
+
+version_str = "$shell_version"
+if "shell-version" in data and isinstance(data["shell-version"], list):
+    if version_str not in data["shell-version"]:
+        data["shell-version"].append(version_str)
+        data["shell-version"].sort(key=lambda x: int(x) if x.isdigit() else 0)
+
+with open("$ext_dir/metadata.json", "w") as f:
+    json.dump(data, f, indent=2)
+EOF
+                    if [ $? -eq 0 ]; then
+                        print_success "Added GNOME Shell $shell_version to metadata.json"
+                    else
+                        print_info "Could not auto-update shell-version (continuing anyway)"
+                    fi
+                else
+                    print_info "Python3 not available, skipping auto-update of shell-version"
+                fi
+            fi
+        fi
+    fi
+
+    # Compile schemas
+    if [ -d "$ext_dir/schemas" ] && command -v glib-compile-schemas &> /dev/null; then
+        glib-compile-schemas "$ext_dir/schemas/"
+        if [ -f "$ext_dir/schemas/gschemas.compiled" ]; then
+        print_success "Schemas compiled"
+        else
+            print_info "Warning: gschemas.compiled not found, but continuing..."
+        fi
+    elif [ ! -d "$ext_dir/schemas" ]; then
+        print_info "Warning: schemas directory not found"
+    else
+        print_info "Warning: glib-compile-schemas not found, schemas not compiled"
+    fi
+
+    # Verify extension directory structure
+    if [ ! -d "$ext_dir" ]; then
+        print_error "Extension directory not created: $ext_dir"
+        return
+    fi
+
+    print_success "GNOME extension installed at: $ext_dir"
+    
+    # Reload GNOME Shell to discover the extension
+    # This is critical for GNOME to find the extension
+    echo
+    print_info "Reloading GNOME Shell to discover the extension..."
+    
+    # Try to reload GNOME Shell (works on X11, limited on Wayland)
+    local reloaded=false
+    if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+        # On X11, we can reload GNOME Shell using dbus
+        if command -v dbus-send &> /dev/null; then
+            dbus-send --type=method_call --dest=org.gnome.Shell /org/gnome/Shell org.gnome.Shell.Eval string:'Meta.restart("Restarting…")' 2>/dev/null
+            if [ $? -eq 0 ]; then
+                print_success "GNOME Shell reload command sent"
+                reloaded=true
+                sleep 3
+            fi
+        fi
+        
+        # Fallback: try with busctl
+        if [ "$reloaded" = false ] && command -v busctl &> /dev/null; then
+            busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Restarting…")' 2>/dev/null
+            if [ $? -eq 0 ]; then
+                print_success "GNOME Shell reload command sent"
+                reloaded=true
+                sleep 3
+            fi
+        fi
+        
+        if [ "$reloaded" = false ]; then
+            print_info "Could not reload GNOME Shell automatically"
+            print_info "Please reload manually:"
+            print_info "  Press Alt+F2, type 'r' and press Enter"
+        fi
+    else
+        # On Wayland, we can't easily reload GNOME Shell
+        print_info "On Wayland, GNOME Shell needs to be restarted manually"
+        print_info "Please log out and log back in, or restart your session"
+        print_info "Alternatively, you can try: killall -SIGQUIT gnome-shell"
+    fi
     
     # Try to enable extension automatically
     if command -v gnome-extensions &> /dev/null; then
+        # Check if extension is now visible
+        if gnome-extensions list | grep -q "redragon-volume-sync@cristiano"; then
         echo
         read -p "Do you want to enable the extension now? (y/n) " -n 1 -r
         echo
@@ -431,13 +543,24 @@ install_gnome_extension() {
                 print_success "Extension enabled successfully"
                 print_info "The icon will appear in the top bar"
             else
+                    print_info "Could not enable extension automatically"
                 print_info "Please enable manually: Extensions → Redragon HS Companion"
             fi
         else
             print_info "Enable manually at: Extensions → Redragon HS Companion"
         fi
     else
-        print_info "Enable the extension at: Extensions → Redragon HS Companion"
+            print_info "Extension not yet visible to GNOME Shell"
+            print_info "Please:"
+            print_info "  1. Reload GNOME Shell (Alt+F2, type 'r', Enter)"
+            print_info "  2. Or log out and log back in"
+            print_info "  3. Then enable at: Extensions → Redragon HS Companion"
+        fi
+    else
+        print_info "gnome-extensions command not found"
+        print_info "Please enable the extension manually:"
+        print_info "  1. Reload GNOME Shell (Alt+F2, type 'r', Enter)"
+        print_info "  2. Open Extensions app → Redragon HS Companion → Enable"
     fi
 }
 
