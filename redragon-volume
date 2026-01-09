@@ -14,10 +14,16 @@ fi
 # Function to send command via socket
 send_command() {
     local cmd="$1"
-    echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null || {
+    # Try without -N first (ncat/nmap on Fedora), fallback with -N (GNU netcat)
+    # ncat doesn't support -N flag, so we try without it first
+    if echo "$cmd" | nc -U "$SOCKET" 2>/dev/null; then
+        return 0
+    elif echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null; then
+        return 0
+    else
         echo "Error communicating with daemon" >&2
         return 1
-    }
+    fi
 }
 
 # Process arguments
