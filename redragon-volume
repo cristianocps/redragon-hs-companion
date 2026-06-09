@@ -12,18 +12,56 @@ if [ ! -S "$SOCKET" ]; then
 fi
 
 # Function to send command via socket
+# Auto-detects an available transport. netcat is NOT always installed (e.g.
+# Arch/CachyOS ship no nc by default), so we try socat/ncat/nc and fall back
+# to python3, which is always present because the daemon itself is Python.
 send_command() {
     local cmd="$1"
-    # Try without -N first (ncat/nmap on Fedora), fallback with -N (GNU netcat)
-    # ncat doesn't support -N flag, so we try without it first
-    if echo "$cmd" | nc -U "$SOCKET" 2>/dev/null; then
-        return 0
-    elif echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null; then
-        return 0
-    else
-        echo "Error communicating with daemon" >&2
-        return 1
+
+    # socat: most reliable for Unix sockets
+    if command -v socat >/dev/null 2>&1; then
+        printf '%s' "$cmd" | socat - "UNIX-CONNECT:$SOCKET" 2>/dev/null && return 0
     fi
+
+    # ncat (nmap): supports -U, does not support -N
+    if command -v ncat >/dev/null 2>&1; then
+        echo "$cmd" | ncat -U "$SOCKET" 2>/dev/null && return 0
+    fi
+
+    # nc: GNU netcat needs -N to close on EOF; OpenBSD nc accepts it too.
+    # Try with -N first, then without for variants that lack the flag.
+    if command -v nc >/dev/null 2>&1; then
+        echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null && return 0
+        echo "$cmd" | nc -U "$SOCKET" 2>/dev/null && return 0
+    fi
+
+    # python3 fallback: always available (daemon is Python)
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$SOCKET" "$cmd" 2>/dev/null <<'PYEOF' && return 0
+import socket, sys
+sock_path, cmd = sys.argv[1], sys.argv[2]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.connect(sock_path)
+    s.sendall(cmd.encode("utf-8"))
+    try:
+        s.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass
+    chunks = []
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        chunks.append(data)
+    sys.stdout.write(b"".join(chunks).decode("utf-8", "replace"))
+finally:
+    s.close()
+PYEOF
+    fi
+
+    echo "Error communicating with daemon" >&2
+    return 1
 }
 
 # Process arguments
