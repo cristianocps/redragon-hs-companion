@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls as Controls
 import org.kde.plasma.plasmoid
-import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
 import "../code/translations.js" as Translations
@@ -214,19 +214,19 @@ PlasmoidItem {
             anchors.margins: Kirigami.Units.smallSpacing
 
             // Status compacto
-            PlasmaComponents3.Label {
+            Controls.Label {
                 id: statusLabel
                 text: isConnected ? "✓ " + deviceName : "❌ " + Translations._('not_found')
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 Layout.fillWidth: true
             }
 
-            PlasmaComponents3.Separator {
+            Kirigami.Separator {
                 Layout.fillWidth: true
             }
 
             // Volume grande
-            PlasmaComponents3.Label {
+            Controls.Label {
                 id: volumeLabel
                 text: currentVolume + " %"
                 font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.5
@@ -237,7 +237,7 @@ PlasmoidItem {
                 Layout.bottomMargin: Kirigami.Units.smallSpacing
             }
 
-            PlasmaComponents3.Separator {
+            Kirigami.Separator {
                 Layout.fillWidth: true
             }
 
@@ -252,7 +252,7 @@ PlasmoidItem {
                     implicitHeight: Kirigami.Units.iconSizes.small
                 }
 
-                PlasmaComponents3.Slider {
+                Controls.Slider {
                     id: volumeSlider
                     Layout.fillWidth: true
                     from: 0
@@ -280,12 +280,12 @@ PlasmoidItem {
                 }
             }
 
-            PlasmaComponents3.Separator {
+            Kirigami.Separator {
                 Layout.fillWidth: true
             }
 
             // Botão de mute
-            PlasmaComponents3.Button {
+            Controls.Button {
                 id: muteButton
                 Layout.fillWidth: true
                 text: isMuted ? "🔊 " + Translations._('unmute') : "🔇 " + Translations._('mute')
@@ -293,7 +293,7 @@ PlasmoidItem {
             }
 
             // Botão para definir como saída padrão
-            PlasmaComponents3.Button {
+            Controls.Button {
                 Layout.fillWidth: true
                 text: "🔊 " + Translations._('use_as_output')
                 onClicked: setAsDefaultSink()
