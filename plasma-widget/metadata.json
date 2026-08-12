@@ -2,7 +2,7 @@
   "KPlugin": {
     "Authors": [
       {
-        "Email": "noreply@example.com",
+        "Email": "cristianocps@gmail.com",
         "Name": "cristianocps"
       }
     ],
@@ -11,7 +11,7 @@
     "Icon": "audio-volume-high",
     "Id": "redragon-volume-sync@cristiano",
     "Name": "Redragon HS Companion",
-    "Version": "1.0",
+    "Version": "1.1",
     "Website": "https://github.com/cristianocps/redragon-hs-companion"
   },
   "KPackageStructure": "Plasma/Applet",

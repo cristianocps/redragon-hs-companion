@@ -629,11 +629,23 @@ install_plasma_widget() {
     fi
 
     local widget_dir="$PLASMA_WIDGET_DIR/redragon-volume-sync@cristiano"
+    local is_upgrade=false
+    [ -d "$widget_dir" ] && is_upgrade=true
+
+    # Replace instead of merge, so files renamed or dropped upstream don't linger
+    rm -rf "$widget_dir"
     mkdir -p "$widget_dir"
 
     cp -r "$SCRIPT_DIR/plasma-widget/"* "$widget_dir/"
 
+    # Plasma serves QML from a compiled disk cache; a stale entry keeps the old widget alive
+    rm -rf "$HOME/.cache/plasmashell/qmlcache" "$HOME/.cache/qmlcache" 2>/dev/null || true
+
     print_success "Plasma widget installed"
+
+    if [ "$is_upgrade" = true ]; then
+        print_info "Existing widget replaced, Plasma must be reloaded to pick up the new version"
+    fi
     
     # Try to add widget to panel automatically
     if command -v qdbus &> /dev/null || command -v qdbus-qt6 &> /dev/null; then
@@ -664,24 +676,26 @@ PLASMASCRIPT
             else
                 print_info "Please add manually: Right-click panel → Add Widgets"
             fi
-            
-            # Offer to reload Plasma
-            if command -v kquitapp6 &> /dev/null; then
-                echo
-                read -p "Do you want to reload Plasma to apply changes? (y/n) " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[SsYy]$ ]]; then
-                    print_info "Reloading Plasma..."
-                    kquitapp6 plasmashell && nohup plasmashell &>/dev/null &
-                    sleep 2
-                    print_success "Plasma reloaded"
-                fi
-            fi
         else
             print_info "Add manually: Right-click panel → Add Widgets → Redragon HS Companion"
         fi
     else
         print_info "Add the widget to your panel: Right-click panel → Add Widgets → Redragon HS Companion"
+    fi
+
+    # Offered on every path: an already-placed widget also needs the reload to refresh
+    if command -v kquitapp6 &> /dev/null; then
+        echo
+        read -p "Do you want to reload Plasma to apply changes? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[SsYy]$ ]]; then
+            print_info "Reloading Plasma..."
+            kquitapp6 plasmashell && nohup plasmashell &>/dev/null &
+            sleep 2
+            print_success "Plasma reloaded"
+        fi
+    else
+        print_info "Reload Plasma to apply changes: kquitapp6 plasmashell && plasmashell &"
     fi
 }
 
