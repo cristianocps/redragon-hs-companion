@@ -12,6 +12,11 @@ show_help() {
     echo
     echo "Options:"
     echo "  --help, -h      Show this help message"
+    echo "  --config-only   Apply the daemon-less fix (WirePlumber config +"
+    echo "                  PCM lock service) instead of enabling the daemons."
+    echo "                  Scripts and CLI are still installed; widgets are"
+    echo "                  skipped (they depend on the daemons)."
+    echo "                  Ideal for immutable distros (Fedora Silverblue, etc.)"
     echo
     echo "Supported distributions and package managers:"
     echo "  • Ubuntu / Debian / Mint          (apt)"
@@ -37,10 +42,14 @@ show_help() {
 }
 
 # Parse command line arguments
+CONFIG_ONLY=false
 for arg in "$@"; do
     case $arg in
         --help|-h)
             show_help
+            ;;
+        --config-only)
+            CONFIG_ONLY=true
             ;;
     esac
 done
@@ -315,11 +324,35 @@ install_scripts() {
     cp "$SCRIPT_DIR/redragon_control_daemon.py" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/redragon_control_daemon.py"
     print_success "Control daemon installed at $INSTALL_DIR/redragon_control_daemon.py"
+
+    # Install PCM lock helper (used by restore-headset.service in config-only mode)
+    if [ -f "$SCRIPT_DIR/redragon-lock-pcm.sh" ]; then
+        cp "$SCRIPT_DIR/redragon-lock-pcm.sh" "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/redragon-lock-pcm.sh"
+        print_success "PCM lock helper installed: redragon-lock-pcm.sh"
+    fi
 }
 
 install_systemd_service() {
     echo
     echo "Installing systemd services..."
+
+    # Clean up daemon-less (config-only) mode artifacts if switching modes
+    if systemctl --user is-active restore-headset.service &> /dev/null; then
+        systemctl --user stop restore-headset.service
+    fi
+    systemctl --user disable restore-headset.service &> /dev/null || true
+    if [ -f "$SYSTEMD_DIR/restore-headset.service" ]; then
+        rm -f "$SYSTEMD_DIR/restore-headset.service"
+        print_info "Removed restore-headset.service (daemon mode does not need it)"
+    fi
+    if [ -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-redragon-headset-fix.conf" ] || \
+       [ -f "$HOME/.config/wireplumber/main.lua.d/51-redragon-headset-fix.lua" ]; then
+        rm -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-redragon-headset-fix.conf"
+        rm -f "$HOME/.config/wireplumber/main.lua.d/51-redragon-headset-fix.lua"
+        print_info "Removed WirePlumber config-only rules"
+        systemctl --user restart wireplumber &> /dev/null || true
+    fi
 
     mkdir -p "$SYSTEMD_DIR"
 
@@ -392,6 +425,102 @@ EOF
         print_info "  systemctl --user start redragon-volume-sync.service"
         print_info "  systemctl --user start redragon-control-daemon.service"
     fi
+}
+
+detect_dongle() {
+    # Informational detection only: reports what is connected.
+    DONGLE_USB=""
+    DONGLE_DEVICE_NAME=""
+    DONGLE_CARD=""
+
+    if command -v lsusb &> /dev/null; then
+        DONGLE_USB=$(lsusb 2>/dev/null | grep -iE '040b:0897|XiiSound|Weltrend|Redragon' | head -1)
+    fi
+
+    if command -v pactl &> /dev/null; then
+        DONGLE_DEVICE_NAME=$(pactl list cards 2>/dev/null \
+            | grep -o 'device.name = "alsa_card.usb-[^"]*"' \
+            | grep -iE 'XiiSound|Weltrend|Redragon|H878|H848|H510|Fuxi' \
+            | head -1 | cut -d'"' -f2)
+    fi
+
+    if [ -r /proc/asound/cards ]; then
+        DONGLE_CARD=$(grep -iE 'H878|H848|H510|Fuxi|XiiSound|Weltrend|Redragon|Wireless headset|2\.4G' /proc/asound/cards | head -1 | awk '{print $1}')
+    fi
+
+    echo
+    echo "Headset detection:"
+    if [ -n "$DONGLE_USB" ] || [ -n "$DONGLE_DEVICE_NAME" ] || [ -n "$DONGLE_CARD" ]; then
+        [ -n "$DONGLE_USB" ] && print_success "USB dongle: $DONGLE_USB"
+        [ -n "$DONGLE_DEVICE_NAME" ] && print_success "PipeWire device: $DONGLE_DEVICE_NAME"
+        [ -n "$DONGLE_CARD" ] && print_success "ALSA card number: $DONGLE_CARD"
+    else
+        print_info "No Redragon/XiiSound dongle detected right now"
+        print_info "The fix is still installed and will apply once the dongle is connected"
+        print_info "After connecting it, run: systemctl --user restart wireplumber pipewire"
+    fi
+}
+
+install_config_only_fix() {
+    echo
+    echo "Installing daemon-less fix (WirePlumber config + PCM lock service)..."
+
+    if ! command -v pactl &> /dev/null; then
+        print_info "pactl not found - is PipeWire running? The config will still be installed"
+    fi
+
+    # WirePlumber rule: soft-mixer + hide phantom digital interface
+    if [ -f "$SCRIPT_DIR/wireplumber/99-redragon-headset-fix.conf" ]; then
+        mkdir -p "$HOME/.config/wireplumber/wireplumber.conf.d"
+        cp "$SCRIPT_DIR/wireplumber/99-redragon-headset-fix.conf" \
+            "$HOME/.config/wireplumber/wireplumber.conf.d/"
+        print_success "WirePlumber rule installed at ~/.config/wireplumber/wireplumber.conf.d/99-redragon-headset-fix.conf"
+    else
+        print_error "wireplumber/99-redragon-headset-fix.conf not found in repository"
+        exit 1
+    fi
+
+    # Lua equivalent for WirePlumber 0.4 (Lua-based config, e.g. Mint/Ubuntu 22.04 era)
+    # WirePlumber 0.5+ ignores main.lua.d and 0.4 ignores conf.d, so both can coexist
+    if [ -f "$SCRIPT_DIR/wireplumber/51-redragon-headset-fix.lua" ]; then
+        mkdir -p "$HOME/.config/wireplumber/main.lua.d"
+        cp "$SCRIPT_DIR/wireplumber/51-redragon-headset-fix.lua" \
+            "$HOME/.config/wireplumber/main.lua.d/"
+        print_success "WirePlumber 0.4 Lua rule installed at ~/.config/wireplumber/main.lua.d/51-redragon-headset-fix.lua"
+    else
+        print_error "wireplumber/51-redragon-headset-fix.lua not found in repository"
+        exit 1
+    fi
+
+    # PCM lock service (retries until the card is ready)
+    if [ -f "$SCRIPT_DIR/systemd/restore-headset.service" ]; then
+        mkdir -p "$SYSTEMD_DIR"
+        cp "$SCRIPT_DIR/systemd/restore-headset.service" "$SYSTEMD_DIR/"
+        print_success "PCM lock service installed"
+    else
+        print_error "systemd/restore-headset.service not found in repository"
+        exit 1
+    fi
+
+    # Clear stale WirePlumber state so the new rule takes effect
+    rm -rf "$HOME/.local/state/wireplumber/"* 2>/dev/null || true
+
+    systemctl --user daemon-reload
+    print_success "Systemd reloaded"
+
+    systemctl --user enable restore-headset.service &> /dev/null
+    systemctl --user start restore-headset.service &> /dev/null
+    if systemctl --user is-active restore-headset.service &> /dev/null; then
+        print_success "PCM lock service enabled and started"
+    else
+        print_info "PCM lock service enabled (it will retry when the card is ready)"
+    fi
+
+    # Restart the audio stack to apply the WirePlumber rule
+    systemctl --user restart wireplumber pipewire &> /dev/null || true
+    print_success "PipeWire/WirePlumber restarted"
+
+    detect_dongle
 }
 
 install_gnome_extension() {
@@ -745,18 +874,37 @@ print_usage_info() {
     echo
     
     if command -v systemctl &> /dev/null; then
-        echo "Systemd services:"
-        echo "  systemctl --user status redragon-volume-sync    - View status"
-        echo "  systemctl --user start redragon-volume-sync     - Start"
-        echo "  systemctl --user stop redragon-volume-sync      - Stop"
-        echo "  systemctl --user enable redragon-volume-sync    - Enable on startup"
-        echo
-        echo "Logs:"
-        echo "  journalctl --user -u redragon-volume-sync -f    - View daemon logs"
+        if [ "$CONFIG_ONLY" = true ]; then
+            echo -e "${YELLOW}Mode: daemon-less (config-only)${NC}"
+            echo
+            echo "Volume is now managed natively by PipeWire (software mixer):"
+            echo "  Your desktop's standard volume control works out of the box"
+            echo
+            echo "Systemd service:"
+            echo "  systemctl --user status restore-headset   - View status"
+            echo "  systemctl --user restart restore-headset - Re-lock PCM channels"
+            echo
+            echo "The CLI and daemons are installed but not enabled."
+            echo "To switch to daemon mode, run ./install.sh again without --config-only"
+        else
+            echo "Systemd services:"
+            echo "  systemctl --user status redragon-volume-sync    - View status"
+            echo "  systemctl --user start redragon-volume-sync     - Start"
+            echo "  systemctl --user stop redragon-volume-sync      - Stop"
+            echo "  systemctl --user enable redragon-volume-sync    - Enable on startup"
+            echo
+            echo "Logs:"
+            echo "  journalctl --user -u redragon-volume-sync -f    - View daemon logs"
+        fi
     else
         echo -e "${YELLOW}Note:${NC} systemd not available on this system"
-        echo "You can run the daemon manually:"
-        echo "  ~/.local/bin/redragon_daemon.py &"
+        if [ "$CONFIG_ONLY" = true ]; then
+            echo "The WirePlumber rule is installed, but the PCM lock service needs systemd"
+            echo "Re-lock manually when needed: ~/.local/bin/redragon-lock-pcm.sh"
+        else
+            echo "You can run the daemon manually:"
+            echo "  ~/.local/bin/redragon_daemon.py &"
+        fi
     fi
     echo
 }
@@ -767,19 +915,29 @@ main() {
 
     check_dependencies
     install_scripts
-    install_systemd_service
 
-    # Try to install appropriate extension/applet/widget
-    if command -v gnome-shell &> /dev/null; then
-        install_gnome_extension
+    if [ "$CONFIG_ONLY" = true ]; then
+        install_config_only_fix
+    else
+        install_systemd_service
     fi
 
-    if [ "$XDG_CURRENT_DESKTOP" = "X-Cinnamon" ]; then
-        install_cinnamon_applet
-    fi
+    # Try to install appropriate extension/applet/widget (daemon mode only:
+    # their indicators depend on the daemons, which are not enabled here)
+    if [ "$CONFIG_ONLY" != true ]; then
+        if command -v gnome-shell &> /dev/null; then
+            install_gnome_extension
+        fi
 
-    if command -v plasmashell &> /dev/null; then
-        install_plasma_widget
+        if [ "$XDG_CURRENT_DESKTOP" = "X-Cinnamon" ]; then
+            install_cinnamon_applet
+        fi
+
+        if command -v plasmashell &> /dev/null; then
+            install_plasma_widget
+        fi
+    else
+        print_info "Skipping extension/applet/widget (they depend on the daemons)"
     fi
 
     test_installation

@@ -1,0 +1,13 @@
+[Unit]
+Description=Lock Redragon/XiiSound Headset PCM Channels at 100 Percent
+After=pipewire.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/redragon-lock-pcm.sh --retry
+Restart=on-failure
+RestartSec=3
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

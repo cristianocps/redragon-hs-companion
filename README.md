@@ -48,6 +48,31 @@ The installer will ask if you want to:
 - Add applet to panel (if using Cinnamon)
 - Add widget to panel (if using KDE Plasma)
 
+### Daemon-less alternative (`--config-only`)
+
+```bash
+./install.sh --config-only
+```
+
+Instead of enabling the daemons, this applies the fix from
+[issue #6](https://github.com/cristianocps/redragon-hs-companion/issues/6):
+a WirePlumber rule (software mixer, hides the phantom digital interface) plus a
+oneshot systemd service that locks the hardware PCM channels at 100%. Ideal for
+immutable distros such as Fedora Silverblue, or whenever you prefer zero
+background daemons — your desktop's native volume control simply works.
+
+- Scripts and CLI are still installed (daemons stay available but not enabled)
+- Desktop widgets/applets are not installed in this mode (they depend on the daemons)
+- Covers the whole Weltrend/XiiSound `040b:0897` dongle family: Redragon H878,
+  H848, H510-PRO Wireless, Havit Fuxi-H3 and rebrands
+- Approach validated on WirePlumber 0.4 and 0.5; also based on the MIT-licensed
+  [havit-fuxi-h3-linux-fix](https://github.com/cleisonsantos/havit-fuxi-h3-linux-fix)
+- To switch back to daemon mode, just run `./install.sh` again without the flag
+
+Note: a kernel-side quirk for this chipset is being discussed upstream
+([LKML](https://lkml.org/lkml/2026/7/5/558)); once merged in mainline kernels,
+the workaround may become unnecessary.
+
 ## Usage
 
 ### Command Line
@@ -191,9 +216,12 @@ systemctl --user daemon-reload
 - `redragon_daemon.py` - PCM synchronization daemon
 - `redragon_control_daemon.py` - Unix socket control server
 - `redragon-volume` - Fast bash client
+- `redragon-lock-pcm.sh` - PCM lock helper (daemon-less mode)
+- `wireplumber/` - WirePlumber rule for the daemon-less mode
 - `gnome-extension/` - GNOME Shell widget
 - `cinnamon-applet/` - Cinnamon panel applet
 - `plasma-widget/` - KDE Plasma widget
+- `systemd/` - systemd service templates
 - `install.sh` - Automatic installer
 - `uninstall.sh` - Uninstaller
 

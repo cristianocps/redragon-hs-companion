@@ -150,25 +150,48 @@ main() {
         systemctl --user disable redragon-control-daemon.service
         print_success "Control daemon disabled"
     fi
-    
+
+    if systemctl --user is-active restore-headset.service &> /dev/null; then
+        systemctl --user stop restore-headset.service
+        print_success "PCM lock service stopped"
+    fi
+
+    if systemctl --user is-enabled restore-headset.service &> /dev/null; then
+        systemctl --user disable restore-headset.service
+        print_success "PCM lock service disabled"
+    fi
+
     echo
-    
+
     # Remove scripts
     echo "Removing scripts..."
     rm -f "$INSTALL_DIR/redragon_volume_sync.py"
     rm -f "$INSTALL_DIR/redragon_daemon.py"
     rm -f "$INSTALL_DIR/redragon_control_daemon.py"
     rm -f "$INSTALL_DIR/redragon-volume"
+    rm -f "$INSTALL_DIR/redragon-lock-pcm.sh"
     print_success "Scripts removed"
-    
+
     echo
-    
+
     # Remove systemd services
     echo "Removing systemd services..."
     rm -f "$SYSTEMD_DIR/redragon-volume-sync.service"
     rm -f "$SYSTEMD_DIR/redragon-control-daemon.service"
+    rm -f "$SYSTEMD_DIR/restore-headset.service"
     systemctl --user daemon-reload
     print_success "Systemd services removed"
+
+    # Remove WirePlumber config-only rules (if installed)
+    if [ -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-redragon-headset-fix.conf" ] || \
+       [ -f "$HOME/.config/wireplumber/main.lua.d/51-redragon-headset-fix.lua" ]; then
+        echo
+        echo "Removing WirePlumber config-only rules..."
+        rm -f "$HOME/.config/wireplumber/wireplumber.conf.d/99-redragon-headset-fix.conf"
+        rm -f "$HOME/.config/wireplumber/main.lua.d/51-redragon-headset-fix.lua"
+        print_success "WirePlumber rules removed"
+        print_info "To revert the audio profile: systemctl --user restart wireplumber pipewire"
+    fi
     
     echo
     
