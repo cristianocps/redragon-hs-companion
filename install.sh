@@ -899,8 +899,16 @@ install_cosmic_applet() {
         if curl -fsSL --connect-timeout 10 "$url" -o "$tmp/applet.tar.gz" 2>/dev/null \
             && tar -xzf "$tmp/applet.tar.gz" -C "$tmp" 2>/dev/null \
             && [ -f "$tmp/redragon-volume-applet" ]; then
-            bin="$tmp/redragon-volume-applet"
-            print_info "Using prebuilt binary from the latest GitHub release"
+            # Reject the prebuilt binary if it needs a newer glibc than this
+            # system has (ldd prints "version `GLIBC_X.YZ' not found")
+            if ldd "$tmp/redragon-volume-applet" 2>&1 | grep -q "not found"; then
+                print_info "Prebuilt binary requires a newer glibc than this system"
+                rm -rf "$tmp"
+                tmp=""
+            else
+                bin="$tmp/redragon-volume-applet"
+                print_info "Using prebuilt binary from the latest GitHub release"
+            fi
         else
             rm -rf "$tmp"
             tmp=""

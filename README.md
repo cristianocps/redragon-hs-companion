@@ -149,7 +149,9 @@ Requires the core installed first (via the quick install or the .deb above). No 
 wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-applet-linux-x86_64.tar.gz
 tar -xzf redragon-volume-applet-linux-x86_64.tar.gz
 install -Dm755 redragon-volume-applet ~/.local/bin/redragon-volume-applet
-install -Dm644 com.github.cristianocps.RedragonVolume.desktop ~/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop
+# The .desktop file ships with an @BINDIR@ placeholder — point it to the binary:
+sed "s|@BINDIR@|$HOME/.local/bin|" com.github.cristianocps.RedragonVolume.desktop \
+  > ~/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop
 ```
 
 Then add the applet in Settings → Panel → Applets.

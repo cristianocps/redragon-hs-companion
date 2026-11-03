@@ -20,7 +20,10 @@ on:
 jobs:
   build-cosmic-applet:
     name: Build COSMIC Applet (Linux x86_64)
-    runs-on: ubuntu-latest
+    # Pinned to the oldest available runner (glibc 2.35) so the prebuilt
+    # binary also runs on older distros (ubuntu-latest ships a newer glibc,
+    # which made the binary fail with "GLIBC_2.43 not found" on Pop!_OS 24.04)
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
