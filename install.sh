@@ -55,6 +55,57 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Bootstrap: when install.sh is downloaded standalone (e.g. curl | bash), the
+# rest of the repository is not present. Fetch the source tarball from the
+# latest release (falling back to master) and re-run from there.
+if [ ! -f "$SCRIPT_DIR/redragon_volume_sync.py" ] || [ ! -d "$SCRIPT_DIR/gnome-extension" ]; then
+    REPO="cristianocps/redragon-hs-companion"
+    TMP_DIR="$(mktemp -d)"
+
+    echo "install.sh is running standalone - downloading the full source..."
+
+    if ! command -v curl &> /dev/null; then
+        echo "ERROR: curl is required to download the source." >&2
+        echo "Install it or clone the repository instead:" >&2
+        echo "  git clone https://github.com/$REPO.git" >&2
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+
+    TAG=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    if [ -n "$TAG" ]; then
+        SRC_URL="https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz"
+    else
+        TAG="master"
+        SRC_URL="https://github.com/$REPO/archive/refs/heads/master.tar.gz"
+    fi
+    echo "Source: $SRC_URL"
+
+    if ! curl -fsSL "$SRC_URL" -o "$TMP_DIR/src.tar.gz"; then
+        echo "ERROR: failed to download $SRC_URL" >&2
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+    tar -xzf "$TMP_DIR/src.tar.gz" -C "$TMP_DIR"
+
+    # Top-level dir name varies (tag tarballs strip the "v" prefix)
+    EXTRACTED=$(find "$TMP_DIR" -maxdepth 1 -mindepth 1 -type d -name 'redragon-hs-companion-*' | head -1)
+    if [ -z "$EXTRACTED" ] || [ ! -f "$EXTRACTED/install.sh" ]; then
+        echo "ERROR: unexpected tarball layout (install.sh not found)" >&2
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+
+    set +e
+    bash "$EXTRACTED/install.sh" "$@"
+    STATUS=$?
+    set -e
+    rm -rf "$TMP_DIR"
+    exit $STATUS
+fi
+
 INSTALL_DIR="$HOME/.local/bin"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 GNOME_EXT_DIR="$HOME/.local/share/gnome-shell/extensions"
@@ -104,6 +155,20 @@ print_error() {
 
 print_info() {
     echo -e "${YELLOW}ℹ${NC} $1"
+}
+
+# Ask a y/n question. Reads from /dev/tty so prompts still work when the
+# script is piped (curl | bash). Answers "yes" automatically when there is
+# no terminal at all (fully non-interactive run).
+confirm() {
+    local prompt="$1"
+    if ! { : < /dev/tty; } 2>/dev/null; then
+        echo "$prompt (y/n) y [auto: no terminal]"
+        return 0
+    fi
+    read -p "$prompt (y/n) " -n 1 -r < /dev/tty || REPLY="n"
+    echo
+    [[ $REPLY =~ ^[SsYy]$ ]]
 }
 
 detect_package_manager() {
@@ -412,9 +477,7 @@ EOF
 
     # Ask if should enable services
     echo
-    read -p "Do you want to enable the services to start automatically? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[SsYy]$ ]]; then
+    if confirm "Do you want to enable the services to start automatically?"; then
         systemctl --user enable redragon-volume-sync.service
         systemctl --user enable redragon-control-daemon.service
         systemctl --user start redragon-volume-sync.service
@@ -664,9 +727,7 @@ EOF
         # Check if extension is now visible
         if gnome-extensions list | grep -q "redragon-volume-sync@cristiano"; then
         echo
-        read -p "Do you want to enable the extension now? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[SsYy]$ ]]; then
+        if confirm "Do you want to enable the extension now?"; then
             gnome-extensions enable redragon-volume-sync@cristiano 2>/dev/null
             if [ $? -eq 0 ]; then
                 print_success "Extension enabled successfully"
@@ -713,9 +774,7 @@ install_cinnamon_applet() {
     # Try to add applet to panel automatically
     if command -v dconf &> /dev/null; then
         echo
-        read -p "Do you want to add the applet to your panel now? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[SsYy]$ ]]; then
+        if confirm "Do you want to add the applet to your panel now?"; then
             # Get current enabled applets
             local current_applets=$(dconf read /org/cinnamon/enabled-applets 2>/dev/null)
             
@@ -779,9 +838,7 @@ install_plasma_widget() {
     # Try to add widget to panel automatically
     if command -v qdbus &> /dev/null || command -v qdbus-qt6 &> /dev/null; then
         echo
-        read -p "Do you want to add the widget to your panel now? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[SsYy]$ ]]; then
+        if confirm "Do you want to add the widget to your panel now?"; then
             # Create a script to add the widget
             local script=$(cat <<'PLASMASCRIPT'
 var panel = panels()[0];
@@ -815,9 +872,7 @@ PLASMASCRIPT
     # Offered on every path: an already-placed widget also needs the reload to refresh
     if command -v kquitapp6 &> /dev/null; then
         echo
-        read -p "Do you want to reload Plasma to apply changes? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[SsYy]$ ]]; then
+        if confirm "Do you want to reload Plasma to apply changes?"; then
             print_info "Reloading Plasma..."
             kquitapp6 plasmashell && nohup plasmashell &>/dev/null &
             sleep 2
