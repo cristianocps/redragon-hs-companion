@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Redragon HS Companion
+Comment=Redragon headset volume control for the COSMIC panel
+Type=Application
+Exec=@BINDIR@/redragon-volume-applet
+Icon=audio-headphones
+Terminal=false
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10

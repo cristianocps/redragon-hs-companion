@@ -828,6 +828,62 @@ PLASMASCRIPT
     fi
 }
 
+install_cosmic_applet() {
+    echo
+    echo "Installing COSMIC applet..."
+
+    local applet_src="$SCRIPT_DIR/cosmic-applet"
+    local bin=""
+    local tmp=""
+
+    # Prefer the prebuilt binary attached to the latest GitHub release
+    # (built by .github/workflows/cosmic-applet.yml) so no Rust is needed.
+    if [ "$(uname -m)" = "x86_64" ] && command -v curl &> /dev/null; then
+        local url="https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-applet-linux-x86_64.tar.gz"
+        tmp=$(mktemp -d)
+        if curl -fsSL --connect-timeout 10 "$url" -o "$tmp/applet.tar.gz" 2>/dev/null \
+            && tar -xzf "$tmp/applet.tar.gz" -C "$tmp" 2>/dev/null \
+            && [ -f "$tmp/redragon-volume-applet" ]; then
+            bin="$tmp/redragon-volume-applet"
+            print_info "Using prebuilt binary from the latest GitHub release"
+        else
+            rm -rf "$tmp"
+            tmp=""
+        fi
+    fi
+
+    # Fall back to building from source with cargo
+    if [ -z "$bin" ]; then
+        if ! command -v cargo &> /dev/null; then
+            print_info "Rust toolchain (cargo) not found, skipping COSMIC applet"
+            print_info "  Install Rust (https://rustup.rs) and run ./install.sh again to build it"
+            return
+        fi
+
+        print_info "Building applet (first build can take several minutes)..."
+        if ! (cd "$applet_src" && cargo build --release); then
+            print_error "Failed to build COSMIC applet, skipping"
+            return
+        fi
+        bin="$applet_src/target/release/redragon-volume-applet"
+    fi
+
+    cp "$bin" "$INSTALL_DIR/redragon-volume-applet"
+    if [ -n "$tmp" ]; then
+        rm -rf "$tmp"
+    fi
+
+    local desktop_dir="$HOME/.local/share/applications"
+    mkdir -p "$desktop_dir"
+    sed "s|@BINDIR@|$INSTALL_DIR|g" \
+        "$applet_src/resources/com.github.cristianocps.RedragonVolume.desktop" \
+        > "$desktop_dir/com.github.cristianocps.RedragonVolume.desktop"
+
+    print_success "COSMIC applet installed"
+    print_info "Add it to the panel: Settings → Panel → Applets → Redragon HS Companion"
+    print_info "If it does not appear in the list, log out and back in (or restart the panel)"
+}
+
 test_installation() {
     echo
     echo "Testing installation..."
@@ -935,6 +991,10 @@ main() {
 
         if command -v plasmashell &> /dev/null; then
             install_plasma_widget
+        fi
+
+        if [ "$XDG_CURRENT_DESKTOP" = "COSMIC" ]; then
+            install_cosmic_applet
         fi
     else
         print_info "Skipping extension/applet/widget (they depend on the daemons)"

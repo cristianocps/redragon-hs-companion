@@ -1,0 +1,85 @@
+name: Build COSMIC Applet
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cosmic-applet/**'
+      - '.github/workflows/cosmic-applet.yml'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cosmic-applet/**'
+      - '.github/workflows/cosmic-applet.yml'
+  workflow_dispatch:
+
+jobs:
+  build-cosmic-applet:
+    name: Build COSMIC Applet (Linux x86_64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cosmic-applet
+
+      - name: Build applet (release)
+        run: |
+          cd cosmic-applet
+          cargo build --release
+
+      - name: Package applet
+        run: |
+          cd cosmic-applet
+          strip target/release/redragon-volume-applet
+          mkdir -p dist
+          cp target/release/redragon-volume-applet dist/
+          cp resources/com.github.cristianocps.RedragonVolume.desktop dist/
+          tar -czf ../redragon-volume-applet-linux-x86_64.tar.gz -C dist .
+
+      - name: Verify package contents
+        run: |
+          tar -tzf redragon-volume-applet-linux-x86_64.tar.gz
+          file cosmic-applet/target/release/redragon-volume-applet
+
+      - name: Upload COSMIC applet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-applet
+          path: redragon-volume-applet-linux-x86_64.tar.gz
+          retention-days: 30
+
+  release-cosmic-applet:
+    name: Attach Applet to Release
+    runs-on: ubuntu-latest
+    needs: [build-cosmic-applet]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download COSMIC applet
+        uses: actions/download-artifact@v4
+        with:
+          name: cosmic-applet
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: redragon-volume-applet-linux-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -11,7 +11,7 @@ Redragon wireless headsets have an issue on Linux where PipeWire only controls o
 - Fast command-line control (~20ms response)
 - Automatic PCM channel synchronization daemon
 - Unix socket server for instant control
-- Desktop widgets for GNOME Shell, Cinnamon, and KDE Plasma
+- Desktop widgets for GNOME Shell, Cinnamon, KDE Plasma, and COSMIC
 - Auto-detection of connected headsets
 - Support for both analog and digital outputs
 - Multilingual interface (English, Portuguese, Spanish)
@@ -22,6 +22,7 @@ Redragon wireless headsets have an issue on Linux where PipeWire only controls o
 - alsa-utils (amixer)
 - systemd (optional, for daemons)
 - GNOME Shell 45+ / Cinnamon 5.0+ / KDE Plasma 6+ (optional, for GUI)
+- Rust toolchain (cargo), only to build the COSMIC applet from source (optional — a prebuilt binary from the latest GitHub release is used automatically when available)
 
 ## Installation
 
@@ -90,7 +91,8 @@ redragon-volume mute          # Toggle mute
 
 **GNOME Shell:** Open Extensions and enable "Redragon HS Companion"  
 **Cinnamon:** Settings → Applets → Add "Redragon HS Companion"  
-**KDE Plasma:** Right-click panel → Add Widgets → "Redragon HS Companion"
+**KDE Plasma:** Right-click panel → Add Widgets → "Redragon HS Companion"  
+**COSMIC:** Settings → Panel → Applets → Add "Redragon HS Companion" (the installer downloads a prebuilt binary from the latest GitHub release when available, or builds from `cosmic-applet/` if the Rust toolchain is installed)
 
 Widget controls:
 - Left click: Open volume control
@@ -157,7 +159,8 @@ systemctl --user restart redragon-control-daemon.service
 
 **GNOME:** `gnome-extensions disable redragon-volume-sync@cristiano && gnome-extensions enable redragon-volume-sync@cristiano`  
 **Cinnamon:** Open Settings → Applets  
-**KDE:** `kquitapp6 plasmashell && plasmashell &`
+**KDE:** `kquitapp6 plasmashell && plasmashell &`  
+**COSMIC:** Remove and re-add the applet in Settings → Panel → Applets (or log out and back in)
 
 ### View logs
 
@@ -186,7 +189,7 @@ If you prefer manual dependency installation:
 The uninstaller will:
 - Stop and disable systemd services
 - Remove all scripts and binaries
-- Disable and remove desktop widgets (GNOME/Cinnamon/KDE)
+- Disable and remove desktop widgets (GNOME/Cinnamon/KDE/COSMIC)
 - Remove widget from panel automatically
 - Ask if you want to remove logs
 
@@ -199,7 +202,7 @@ systemctl --user disable redragon-volume-sync.service redragon-control-daemon.se
 
 # Disable widgets
 gnome-extensions disable redragon-volume-sync@cristiano  # GNOME
-# For Cinnamon/KDE: remove from panel in Settings
+# For Cinnamon/KDE/COSMIC: remove from panel in Settings
 
 # Remove files
 rm -rf ~/.local/bin/redragon*
@@ -207,6 +210,7 @@ rm -rf ~/.config/systemd/user/redragon-*
 rm -rf ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano
 rm -rf ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano
 rm -rf ~/.local/share/plasma/plasmoids/redragon-volume-sync@cristiano
+rm -f ~/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop  # COSMIC
 systemctl --user daemon-reload
 ```
 
@@ -221,6 +225,7 @@ systemctl --user daemon-reload
 - `gnome-extension/` - GNOME Shell widget
 - `cinnamon-applet/` - Cinnamon panel applet
 - `plasma-widget/` - KDE Plasma widget
+- `cosmic-applet/` - COSMIC panel applet (Rust/libcosmic)
 - `systemd/` - systemd service templates
 - `install.sh` - Automatic installer
 - `uninstall.sh` - Uninstaller

@@ -114,6 +114,21 @@ for (var i = 0; i < panels_list.length; i++) {
     fi
 }
 
+remove_cosmic_applet() {
+    local desktop_file="$HOME/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop"
+    if [ -f "$INSTALL_DIR/redragon-volume-applet" ] || [ -f "$desktop_file" ]; then
+        echo "Removing COSMIC applet..."
+
+        # Stop the running instance spawned by cosmic-panel (if any)
+        pkill -f "$INSTALL_DIR/redragon-volume-applet" 2>/dev/null || true
+
+        rm -f "$INSTALL_DIR/redragon-volume-applet"
+        rm -f "$desktop_file"
+        print_success "COSMIC applet removed"
+        print_info "If it was added to the panel, remove it at: Settings → Panel → Applets"
+    fi
+}
+
 main() {
     print_header
     
@@ -201,7 +216,9 @@ main() {
     remove_cinnamon_applet
     echo
     remove_plasma_widget
-    
+    echo
+    remove_cosmic_applet
+
     # Ask about logs
     echo
     read -p "Also remove logs? (y/n) " -n 1 -r

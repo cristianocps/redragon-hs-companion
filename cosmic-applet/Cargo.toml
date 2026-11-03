@@ -1,0 +1,31 @@
+[package]
+name = "redragon-volume-applet"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "COSMIC panel applet for Redragon headset volume control"
+repository = "https://github.com/cristianocps/redragon-hs-companion"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic.git"
+# See https://github.com/pop-os/libcosmic/blob/master/Cargo.toml for available features.
+features = [
+    # Applet support
+    "applet",
+    "applet-token",
+    # Support creating additional application windows (the popup)
+    "multi-window",
+    # Uses tokio as the executor for the runtime
+    "tokio",
+    # Add Wayland support to winit
+    "wayland",
+    # Windowing support for X11, Windows, Mac, & Redox
+    "winit",
+]
+
+# Uncomment to test a locally-cloned libcosmic
+# [patch.'https://github.com/pop-os/libcosmic']
+# libcosmic = { path = "../libcosmic" }
