@@ -73,15 +73,20 @@ class RedragonControlDaemon:
 
             elif cmd == "get":
                 vol1, vol2 = self.sync.get_volumes()
-                if vol1 is not None:
-                    # Returns the effective volume (PCM[1] on analog, or any on digital)
-                    is_analog = self.sync._is_analog_output()
-                    effective_vol = vol2 if is_analog else vol1
+                is_analog = self.sync._is_analog_output()
+                effective_vol = vol2 if is_analog else vol1
+
+                if effective_vol is not None:
                     return f"OK: {effective_vol}"
                 else:
                     # Try to reconnect
                     self.logger.warning("Failed to get volume, headset may have disconnected")
                     self.sync.card_id = None
+                    if self.sync.detect_card():
+                        vol1, vol2 = self.sync.get_volumes()
+                        effective_vol = vol2 if self.sync._is_analog_output() else vol1
+                        if effective_vol is not None:
+                            return f"OK: {effective_vol}"
                     return "ERROR: failed to get volume"
 
             elif cmd == "status":

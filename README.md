@@ -153,6 +153,15 @@ redragon-volume status                   # Test detection
 systemctl --user status redragon-control-daemon.service
 systemctl --user restart redragon-volume-sync.service
 systemctl --user restart redragon-control-daemon.service
+redragon-volume ping    # Test if the control daemon is reachable
+```
+
+### Error communicating with daemon
+
+```bash
+redragon-volume ping                              # Test connectivity
+systemctl --user status redragon-control-daemon # Check daemon state
+journalctl --user -u redragon-control-daemon -e # View recent logs
 ```
 
 ### Widget not showing
@@ -219,7 +228,7 @@ systemctl --user daemon-reload
 - `redragon_volume_sync.py` - Core ALSA control library
 - `redragon_daemon.py` - PCM synchronization daemon
 - `redragon_control_daemon.py` - Unix socket control server
-- `redragon-volume` - Fast bash client
+- `redragon-volume` - Fast Python CLI client
 - `redragon-lock-pcm.sh` - PCM lock helper (daemon-less mode)
 - `wireplumber/` - WirePlumber rule for the daemon-less mode
 - `gnome-extension/` - GNOME Shell widget

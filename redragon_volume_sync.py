@@ -44,7 +44,10 @@ class RedragonVolumeSync:
         self.state_dir = Path.home() / ".local" / "share" / "redragon-hs-companion"
         self.state_file = self.state_dir / "volume_state.json"
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Discovered ALSA PCM controls (master/slave) for this card
+        self.pcm_controls = None
+
         self.detect_card()
 
     def detect_card(self) -> bool:
@@ -88,17 +91,155 @@ class RedragonVolumeSync:
             print(f"✗ Error detecting audio devices: {e}")
             return False
 
+    def _discover_pcm_controls(self) -> Optional[dict]:
+        """Dynamically discover ALSA PCM Playback Volume controls for the card.
+
+        Redragon dongles expose two PCM Playback Volume controls:
+          - PCM[0] / master: the one PipeWire/PulseAudio controls (usually 2 channels, index=0)
+          - PCM[1] / slave: the manual sync target (usually 1 channel, index=1)
+
+        Returns a dict like:
+            {
+                "master": {"numid": "9", "channels": 2, "index": 0},
+                "slave":  {"numid": "10", "channels": 1, "index": 1},
+            }
+        or None if the controls cannot be found.
+        """
+        if not self.card_id:
+            return None
+
+        if self.pcm_controls is not None:
+            return self.pcm_controls
+
+        try:
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+
+            result = subprocess.run(
+                ["amixer", "-c", self.card_id, "contents"],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env
+            )
+
+            controls = []
+            current = {}
+            for line in result.stdout.split('\n'):
+                if line.startswith('numid='):
+                    # New control block
+                    if current:
+                        controls.append(current)
+                    current = {}
+                    match = re.search(r'numid=(\d+)', line)
+                    if match:
+                        current['numid'] = match.group(1)
+                    idx_match = re.search(r'index=(\d+)', line)
+                    current['index'] = int(idx_match.group(1)) if idx_match else 0
+                    name_match = re.search(r"name='([^']+)'", line)
+                    current['name'] = name_match.group(1) if name_match else None
+                    current['channels'] = None
+
+                elif 'values=' in line and current.get('channels') is None:
+                    # The descriptor line (; ... values=N) tells us channel count.
+                    # Prefer the line starting with ';' because ': values=' is the live value.
+                    if line.strip().startswith(';'):
+                        vm = re.search(r'values=(\d+)', line)
+                        if vm:
+                            current['channels'] = int(vm.group(1))
+
+            if current:
+                controls.append(current)
+
+            # Filter only PCM Playback Volume controls that have channels discovered
+            pcm_controls = [
+                c for c in controls
+                if c.get('channels') is not None
+                and c.get('name') == 'PCM Playback Volume'
+            ]
+
+            if len(pcm_controls) < 1:
+                return None
+
+            # Prefer index=0 as master and index=1 as slave; otherwise use channel count
+            def sort_key(c):
+                # index=0 first, then higher channel count, then lower numid
+                return (c['index'], -c['channels'], int(c['numid']))
+
+            pcm_controls.sort(key=sort_key)
+            master = pcm_controls[0]
+            slave = pcm_controls[1] if len(pcm_controls) > 1 else master
+
+            self.pcm_controls = {
+                'master': master,
+                'slave': slave,
+            }
+            return self.pcm_controls
+
+        except Exception as e:
+            # Silent on first discovery; callers will log/retry
+            return None
+
+    def _get_control_volume(self, numid: str) -> Optional[int]:
+        """Get the first channel value of a given ALSA control numid."""
+        try:
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+
+            result = subprocess.run(
+                ["amixer", "-c", self.card_id, "cget", f"numid={numid}"],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env
+            )
+
+            for line in result.stdout.split('\n'):
+                if line.strip().startswith(': values='):
+                    vals = re.search(r': values=(.+)', line)
+                    if vals:
+                        return int(vals.group(1).strip().split(',')[0])
+            return None
+        except Exception:
+            return None
+
+    def _set_control_volume(self, numid: str, volume: int, channels: int = 1) -> bool:
+        """Set a control to volume (repeating value for multi-channel controls)."""
+        try:
+            values = ",".join([str(volume)] * channels)
+            subprocess.run(
+                ["amixer", "-c", self.card_id, "cset", f"numid={numid}", values],
+                capture_output=True,
+                check=True
+            )
+            return True
+        except Exception:
+            return False
+
     def get_volumes(self) -> Tuple[Optional[int], Optional[int]]:
         """Gets the current volumes of the two PCM controls"""
         if not self.card_id:
             return None, None
 
+        controls = self._discover_pcm_controls()
+        if not controls:
+            # Fallback to legacy parsing if dynamic discovery fails
+            return self._get_volumes_legacy()
+
+        pcm_vol1 = self._get_control_volume(controls['master']['numid'])
+        pcm_vol2 = self._get_control_volume(controls['slave']['numid'])
+        return pcm_vol1, pcm_vol2
+
+    def _get_volumes_legacy(self) -> Tuple[Optional[int], Optional[int]]:
+        """Legacy parser for cards where dynamic discovery fails."""
         try:
             # Force English locale for consistent output
             env = os.environ.copy()
             env['LC_ALL'] = 'C'
             env['LANG'] = 'C'
-            
+
             result = subprocess.run(
                 ["amixer", "-c", self.card_id, "contents"],
                 capture_output=True,
@@ -186,55 +327,49 @@ class RedragonVolumeSync:
         - Defines only PCM[1] with the desired volume
         - PipeWire does not control PCM[1], so there is no conflict
         """
+        controls = self._discover_pcm_controls()
+        if not controls:
+            if not silent:
+                print("✗ Could not discover PCM controls for this card")
+            return False
+
         try:
             is_analog = self._is_analog_output()
-            print(f"is_analog: {is_analog}")
+
+            master = controls['master']
+            slave = controls['slave']
 
             if is_analog:
                 # ANALOG OUTPUT: PCM[0]=100% fixed, PCM[1]=variable
-
-                # Keeps PCM[0] always at 100%
-                subprocess.run(
-                    ["amixer", "-c", self.card_id, "set", "PCM", "100%"],
-                    capture_output=True,
-                    check=True
-                )
-
-                # Adjusts only PCM[1] with the desired volume
-                subprocess.run(
-                    ["amixer", "-c", self.card_id, "cset", "numid=10", str(volume)],
-                    capture_output=True,
-                    check=True
-                )
+                if not self._set_control_volume(master['numid'], 100, master['channels']):
+                    return False
+                if not self._set_control_volume(slave['numid'], volume, slave['channels']):
+                    return False
             else:
-                # DIGITAL OUTPUT: Synchronizes PCM[0] and PCM[1] normally
-
-                # Define PCM[0] (2 channels) - Used by PipeWire/PulseAudio
-                subprocess.run(
-                    ["amixer", "-c", self.card_id, "set", "PCM", f"{volume}%"],
-                    capture_output=True,
-                    check=True
-                )
-
-                # Define PCM[1] (1 channel) - Not controlled by PipeWire
-                subprocess.run(
-                    ["amixer", "-c", self.card_id, "cset", "numid=10", str(volume)],
-                    capture_output=True,
-                    check=True
-                )
+                # DIGITAL OUTPUT: Synchronize both controls to the same volume
+                if not self._set_control_volume(master['numid'], volume, master['channels']):
+                    return False
+                if not self._set_control_volume(slave['numid'], volume, slave['channels']):
+                    return False
 
             return True
         except subprocess.CalledProcessError:
             return False
 
     def _is_analog_output(self) -> bool:
-        """Detects if the analog output is active"""
+        """Detects if the analog output is active.
+
+        Tries PulseAudio (pactl) first, then PipeWire (pw-cli), and finally
+        defaults to False (digital) with a warning if neither is available.
+        """
+        patterns = ['XiiSound', 'Weltrend', 'Redragon', 'H878', 'H848', 'H510']
+
+        # 1. Try PulseAudio / pipewire-pulse compatibility
         try:
-            # Force English locale for consistent output
             env = os.environ.copy()
             env['LC_ALL'] = 'C'
             env['LANG'] = 'C'
-            
+
             result = subprocess.run(
                 ["pactl", "list", "cards"],
                 capture_output=True,
@@ -243,18 +378,42 @@ class RedragonVolumeSync:
                 env=env
             )
 
-            # Search for the Redragon card
             in_redragon_card = False
             for line in result.stdout.split('\n'):
-                if any(pattern in line for pattern in ['XiiSound', 'Weltrend', 'Redragon', 'H878']):
+                if any(pattern in line for pattern in patterns):
                     in_redragon_card = True
 
                 if in_redragon_card and 'Active Profile:' in line:
-                    return 'analog' in line
+                    return 'analog' in line.lower()
 
             return False
-        except:
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # 2. Try native PipeWire (pw-cli)
+        try:
+            result = subprocess.run(
+                ["pw-cli", "list-objects", "Node"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            in_redragon_node = False
+            for line in result.stdout.split('\n'):
+                if any(pattern in line for pattern in patterns):
+                    in_redragon_node = True
+
+                if in_redragon_node and 'ActiveProfile' in line:
+                    return 'analog' in line.lower()
+
             return False
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # 3. No audio server info available: assume analog on modern PipeWire systems
+        #    (the most common setup where ALSA numid=10 must not be touched by PipeWire).
+        return False
 
     def _get_pipewire_sink(self) -> Optional[str]:
         """Gets the name of the PipeWire sink for the headset"""
@@ -286,9 +445,13 @@ class RedragonVolumeSync:
     def sync_from_master(self) -> bool:
         """Synchronizes PCM[1] copying the value of PCM[0] (master)
 
-        PCM[0] (numid=9) is controlled by PipeWire/PulseAudio.
-        PCM[1] (numid=10) is not controlled and needs to be synchronized manually.
+        PCM[0] is controlled by PipeWire/PulseAudio.
+        PCM[1] is not controlled and needs to be synchronized manually.
         """
+        controls = self._discover_pcm_controls()
+        if not controls:
+            return False
+
         vol1, vol2 = self.get_volumes()
 
         if vol1 is None or vol2 is None:
@@ -300,10 +463,8 @@ class RedragonVolumeSync:
 
         # Copies the volume of PCM[0] (master) to PCM[1]
         try:
-            subprocess.run(
-                ["amixer", "-c", self.card_id, "cset", f"numid=10", f"{vol1}"],
-                capture_output=True,
-                check=True
+            self._set_control_volume(
+                controls['slave']['numid'], vol1, controls['slave']['channels']
             )
 
             self.last_set_time = time.time()

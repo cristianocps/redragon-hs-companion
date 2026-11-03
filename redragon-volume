@@ -1,118 +1,151 @@
-#!/bin/bash
-# Fast client for the Redragon Control Daemon
-# Uses Unix socket to avoid Python startup overhead
+#!/usr/bin/env python3
+"""
+Redragon Volume CLI client
+Fast Unix-socket client for redragon-control-daemon.
+"""
 
-SOCKET="${XDG_RUNTIME_DIR:-/tmp}/redragon-control.sock"
+import os
+import socket
+import sys
 
-# Check if the daemon is running
-if [ ! -S "$SOCKET" ]; then
-    echo "Error: Daemon is not running" >&2
-    echo "Execute: systemctl --user start redragon-control-daemon" >&2
-    exit 1
-fi
+SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "redragon-control.sock")
 
-# Function to send command via socket
-# Auto-detects an available transport. netcat is NOT always installed (e.g.
-# Arch/CachyOS ship no nc by default), so we try socat/ncat/nc and fall back
-# to python3, which is always present because the daemon itself is Python.
-send_command() {
-    local cmd="$1"
 
-    # socat: most reliable for Unix sockets
-    if command -v socat >/dev/null 2>&1; then
-        printf '%s' "$cmd" | socat - "UNIX-CONNECT:$SOCKET" 2>/dev/null && return 0
-    fi
+def send_command(cmd: str, timeout: float = 5.0) -> str:
+    """Send a command to the control daemon and return its response."""
+    if not os.path.exists(SOCKET_PATH):
+        raise RuntimeError(
+            f"Daemon socket not found: {SOCKET_PATH}\n"
+            "Is redragon-control-daemon running? Try:\n"
+            "  systemctl --user start redragon-control-daemon"
+        )
 
-    # ncat (nmap): supports -U, does not support -N
-    if command -v ncat >/dev/null 2>&1; then
-        echo "$cmd" | ncat -U "$SOCKET" 2>/dev/null && return 0
-    fi
+    if not os.path.exists(SOCKET_PATH) or not os.access(SOCKET_PATH, os.R_OK | os.W_OK):
+        raise RuntimeError(
+            f"Cannot access daemon socket: {SOCKET_PATH}\n"
+            "Check permissions or if the daemon is running under a different user session."
+        )
 
-    # nc: GNU netcat needs -N to close on EOF; OpenBSD nc accepts it too.
-    # Try with -N first, then without for variants that lack the flag.
-    if command -v nc >/dev/null 2>&1; then
-        echo "$cmd" | nc -U -N "$SOCKET" 2>/dev/null && return 0
-        echo "$cmd" | nc -U "$SOCKET" 2>/dev/null && return 0
-    fi
-
-    # python3 fallback: always available (daemon is Python)
-    if command -v python3 >/dev/null 2>&1; then
-        python3 - "$SOCKET" "$cmd" 2>/dev/null <<'PYEOF' && return 0
-import socket, sys
-sock_path, cmd = sys.argv[1], sys.argv[2]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-try:
-    s.connect(sock_path)
-    s.sendall(cmd.encode("utf-8"))
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
     try:
-        s.shutdown(socket.SHUT_WR)
-    except OSError:
-        pass
-    chunks = []
-    while True:
-        data = s.recv(1024)
-        if not data:
-            break
-        chunks.append(data)
-    sys.stdout.write(b"".join(chunks).decode("utf-8", "replace"))
-finally:
-    s.close()
-PYEOF
-    fi
+        sock.connect(SOCKET_PATH)
+        sock.sendall(cmd.encode("utf-8"))
+        try:
+            sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
 
-    echo "Error communicating with daemon" >&2
-    return 1
-}
+        chunks = []
+        while True:
+            try:
+                data = sock.recv(4096)
+            except socket.timeout:
+                break
+            if not data:
+                break
+            chunks.append(data)
 
-# Process arguments
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 <volume|status|get|mute>"
-    echo "  $0 50          # Define volume to 50%"
-    echo "  $0 status      # Show status"
-    echo "  $0 get         # Get current volume"
-    echo "  $0 mute        # Mute/unmute (toggle)"
-    exit 1
-fi
+        response = b"".join(chunks).decode("utf-8", "replace").strip()
+        if not response:
+            raise RuntimeError("Daemon returned an empty response")
+        return response
+    finally:
+        sock.close()
 
-case "$1" in
-    status)
-        send_command "status"
-        ;;
-    get)
-        response=$(send_command "get")
-        if [[ "$response" == OK:* ]]; then
-            volume="${response#OK: }"
-            echo "Volume: $volume%"
-        else
-            echo "$response" >&2
-            exit 1
-        fi
-        ;;
-    mute)
-        response=$(send_command "mute")
-        if [[ "$response" == OK:* ]]; then
-            echo "OK"
-        else
-            echo "$response" >&2
-            exit 1
-        fi
-        ;;
-    [0-9]*)
-        volume="$1"
-        if [ "$volume" -lt 0 ] || [ "$volume" -gt 100 ]; then
-            echo "Volume must be between 0 and 100" >&2
-            exit 1
-        fi
-        response=$(send_command "set $volume")
-        if [[ "$response" == OK:* ]]; then
-            echo "Volume: ${response#OK: }%"
-        else
-            echo "$response" >&2
-            exit 1
-        fi
-        ;;
-    *)
-        echo "Invalid command: $1" >&2
-        exit 1
-        ;;
-esac
+
+def get_volume() -> int:
+    """Ask the daemon for the current effective volume."""
+    resp = send_command("get")
+    if resp.startswith("OK:"):
+        return int(resp.split(":", 1)[1].strip())
+    raise RuntimeError(resp)
+
+
+def usage() -> None:
+    print("Usage: redragon-volume <command>")
+    print()
+    print("Commands:")
+    print("  status       Show headset status")
+    print("  get          Get current volume percentage")
+    print("  mute         Toggle mute")
+    print("  <number>     Set volume to 0-100")
+    print("  +<number>    Increase volume")
+    print("  -<number>    Decrease volume")
+    print("  ping         Test daemon connectivity")
+    print()
+    print("Examples:")
+    print("  redragon-volume 75")
+    print("  redragon-volume +10")
+    print("  redragon-volume -5")
+    sys.exit(0)
+
+
+def main() -> int:
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        usage()
+
+    arg = sys.argv[1].strip()
+
+    try:
+        if arg == "status":
+            print(send_command("status"))
+
+        elif arg == "ping":
+            resp = send_command("ping")
+            if resp == "OK: pong":
+                print("Daemon is reachable")
+            else:
+                print(f"Unexpected response: {resp}", file=sys.stderr)
+                return 1
+
+        elif arg == "get":
+            print(f"Volume: {get_volume()}%")
+
+        elif arg == "mute":
+            resp = send_command("mute")
+            if resp.startswith("OK:"):
+                print(resp.split(":", 1)[1].strip())
+            else:
+                print(resp, file=sys.stderr)
+                return 1
+
+        elif arg.startswith(("+", "-")):
+            delta = int(arg)
+            current = get_volume()
+            new_vol = max(0, min(100, current + delta))
+            resp = send_command(f"set {new_vol}")
+            if resp.startswith("OK:"):
+                print(f"Volume: {new_vol}%")
+            else:
+                print(resp, file=sys.stderr)
+                return 1
+
+        elif arg.isdigit():
+            volume = int(arg)
+            if volume < 0 or volume > 100:
+                print("Volume must be between 0 and 100", file=sys.stderr)
+                return 1
+            resp = send_command(f"set {volume}")
+            if resp.startswith("OK:"):
+                print(f"Volume: {volume}%")
+            else:
+                print(resp, file=sys.stderr)
+                return 1
+
+        else:
+            print(f"Invalid command: {arg}", file=sys.stderr)
+            usage()
+
+    except (RuntimeError, ValueError, ConnectionRefusedError, PermissionError) as exc:
+        print(f"Error communicating with daemon: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error communicating with daemon: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
