@@ -83,7 +83,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak
-          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Download Flatpak bundle
         uses: actions/download-artifact@v4
@@ -92,9 +92,9 @@ jobs:
 
       - name: Install Flatpak bundle
         run: |
-          flatpak install -y --bundle redragon-hs-companion.flatpak
+          flatpak install --user -y --bundle redragon-hs-companion.flatpak
 
       - name: Test Flatpak installation
         run: |
-          flatpak list | grep RedragonHSCompanion
+          flatpak list --user | grep RedragonHSCompanion
           echo "✅ Flatpak installed successfully!"
