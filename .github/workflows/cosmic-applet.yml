@@ -3,7 +3,7 @@ name: Build COSMIC Applet
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'cosmic-applet/**'
       - '.github/workflows/cosmic-applet.yml'
@@ -11,7 +11,7 @@ on:
       - 'v*'
   pull_request:
     branches:
-      - main
+      - master
     paths:
       - 'cosmic-applet/**'
       - '.github/workflows/cosmic-applet.yml'
