@@ -15,6 +15,8 @@ jobs:
   build-deb:
     name: Build .deb package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -23,42 +25,79 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper dh-make python3 alsa-utils
+          sudo apt-get install -y dpkg
 
       - name: Create package structure
         run: |
-          VERSION=$(grep -oP '(?<=Version: )\d+\.\d+\.\d+' debian/control || echo "1.0.0")
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/DEBIAN
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/usr/local/bin
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/lib/systemd/user
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/usr/share/doc/redragon-volume-sync
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/usr/share/applications
-          mkdir -p debian-package/redragon-volume-sync_${VERSION}/usr/share/icons/hicolor/scalable/apps
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || VERSION="$(date +%Y.%m.%d)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-          # Copy scripts
-          cp redragon_volume_sync.py debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/
-          cp redragon_daemon.py debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/
-          cp redragon_event_monitor.py debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/
-          cp redragon-volume debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/
-          cp configure-pipewire.sh debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/
+          PKG="debian-package/redragon-volume-sync_${VERSION}"
+          mkdir -p "$PKG/DEBIAN" \
+                   "$PKG/usr/local/bin" \
+                   "$PKG/usr/lib/systemd/user" \
+                   "$PKG/usr/share/doc/redragon-volume-sync" \
+                   "$PKG/usr/share/icons/hicolor/scalable/apps"
 
-          # Make executable
-          chmod +x debian-package/redragon-volume-sync_${VERSION}/usr/local/bin/*
+          # Scripts and daemons
+          cp redragon_volume_sync.py "$PKG/usr/local/bin/"
+          cp redragon_daemon.py "$PKG/usr/local/bin/"
+          cp redragon_control_daemon.py "$PKG/usr/local/bin/"
+          cp redragon-volume "$PKG/usr/local/bin/"
+          cp redragon-lock-pcm.sh "$PKG/usr/local/bin/"
+          chmod +x "$PKG/usr/local/bin/"*
 
-          # Copy systemd service
-          cp redragon-volume-sync.service debian-package/redragon-volume-sync_${VERSION}/lib/systemd/user/
+          # Documentation and icon
+          cp README.md LICENSE "$PKG/usr/share/doc/redragon-volume-sync/"
+          cp icons/redragon-volume-sync.svg "$PKG/usr/share/icons/hicolor/scalable/apps/"
 
-          # Copy documentation
-          cp README.md ANALOG_OUTPUT.md DISTRIBUTION.md debian-package/redragon-volume-sync_${VERSION}/usr/share/doc/redragon-volume-sync/
+          # systemd user units (paths point at /usr/local/bin for the .deb layout)
+          cat > "$PKG/usr/lib/systemd/user/redragon-volume-sync.service" <<EOF
+          [Unit]
+          Description=Redragon Wireless Headset Volume Synchronizer
+          After=sound.target pulseaudio.service
+          Wants=sound.target
 
-          # Copy desktop file and icon
-          cp com.github.cristiano.RedragonVolumeSync.desktop debian-package/redragon-volume-sync_${VERSION}/usr/share/applications/
-          cp icons/redragon-volume-sync.svg debian-package/redragon-volume-sync_${VERSION}/usr/share/icons/hicolor/scalable/apps/
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/redragon_daemon.py
+          Restart=on-failure
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+
+          NoNewPrivileges=true
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=default.target
+          EOF
+
+          cat > "$PKG/usr/lib/systemd/user/redragon-control-daemon.service" <<EOF
+          [Unit]
+          Description=Redragon Control Daemon - Volume Control Server
+          After=sound.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/redragon_control_daemon.py
+          Restart=on-failure
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+
+          NoNewPrivileges=true
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=default.target
+          EOF
 
       - name: Create control file
         run: |
-          VERSION=$(date +%Y.%m.%d)
-          cat > debian-package/redragon-volume-sync_${VERSION}/DEBIAN/control <<EOF
+          PKG="debian-package/redragon-volume-sync_${VERSION}"
+          cat > "$PKG/DEBIAN/control" <<EOF
           Package: redragon-volume-sync
           Version: ${VERSION}
           Section: sound
@@ -66,49 +105,50 @@ jobs:
           Architecture: all
           Depends: python3, alsa-utils, systemd
           Recommends: pipewire | pulseaudio
-          Maintainer: Redragon Volume Sync Contributors
-          Homepage: https://github.com/cristiano/h878-fixer
-          Description: Sincronizador de volume para headsets Redragon sem fio
-           Sincroniza automaticamente os canais de volume de headsets Redragon
-           sem fio (H878, H848, H510, etc) no Linux.
+          Maintainer: Redragon HS Companion Contributors
+          Homepage: https://github.com/cristianocps/redragon-hs-companion
+          Description: Volume control for Redragon wireless headsets on Linux
+           Automatically syncs the volume channels of Redragon wireless
+           headsets (H878, H848, H510, etc) on Linux.
            .
-           Funcionalidades:
-            - Script CLI para controle manual
-            - Daemon automático com monitoramento por eventos
-            - Suporte a GNOME Shell e Cinnamon Desktop
-            - Configuração PipeWire opcional
+           Features:
+            - CLI client for manual control (redragon-volume)
+            - Automatic sync daemon with event monitoring
+            - Fast control daemon over a Unix socket
+            - GNOME Shell, Cinnamon, KDE Plasma and COSMIC widgets
+            - Optional PipeWire configuration
           EOF
 
       - name: Create postinst script
         run: |
-          VERSION=$(date +%Y.%m.%d)
-          cat > debian-package/redragon-volume-sync_${VERSION}/DEBIAN/postinst <<'EOF'
+          PKG="debian-package/redragon-volume-sync_${VERSION}"
+          cat > "$PKG/DEBIAN/postinst" <<'EOF'
           #!/bin/bash
           set -e
 
           # Create symlink
           ln -sf /usr/local/bin/redragon_volume_sync.py /usr/local/bin/redragon-sync || true
 
-          echo "Redragon Volume Sync instalado com sucesso!"
+          echo "Redragon HS Companion instalado com sucesso!"
           echo ""
           echo "Para iniciar:"
-          echo "  systemctl --user enable redragon-volume-sync.service"
-          echo "  systemctl --user start redragon-volume-sync.service"
+          echo "  systemctl --user daemon-reload"
+          echo "  systemctl --user enable --now redragon-volume-sync.service"
+          echo "  systemctl --user enable --now redragon-control-daemon.service"
           echo ""
-          echo "Comandos disponíveis:"
+          echo "Comandos disponiveis:"
           echo "  redragon-sync status"
           echo "  redragon-volume 75"
           echo ""
-          echo "Documentação: /usr/share/doc/redragon-volume-sync/"
+          echo "Documentacao: /usr/share/doc/redragon-volume-sync/"
           EOF
 
-          chmod 755 debian-package/redragon-volume-sync_${VERSION}/DEBIAN/postinst
+          chmod 755 "$PKG/DEBIAN/postinst"
 
       - name: Build .deb package
         run: |
-          VERSION=$(date +%Y.%m.%d)
-          dpkg-deb --build debian-package/redragon-volume-sync_${VERSION}
-          mv debian-package/redragon-volume-sync_${VERSION}.deb redragon-volume-sync_${VERSION}_all.deb
+          dpkg-deb --build "debian-package/redragon-volume-sync_${VERSION}"
+          mv "debian-package/redragon-volume-sync_${VERSION}.deb" "redragon-volume-sync_${VERSION}_all.deb"
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4

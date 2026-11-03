@@ -1,0 +1,26 @@
+app-id: com.github.cristianocps.RedragonHSCompanion
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: redragon-volume
+
+finish-args:
+  # PipeWire/PulseAudio for sink discovery and default-sink switching
+  - --socket=pulseaudio
+  # Direct ALSA access (the daemons drive the headset's hardware mixer)
+  - --device=all
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  - name: redragon-hs-companion
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 redragon_volume_sync.py /app/bin/redragon_volume_sync.py
+      - install -Dm755 redragon_daemon.py /app/bin/redragon_daemon.py
+      - install -Dm755 redragon_control_daemon.py /app/bin/redragon_control_daemon.py
+      - install -Dm755 redragon-volume /app/bin/redragon-volume
+      - install -Dm755 redragon-lock-pcm.sh /app/bin/redragon-lock-pcm.sh
+      - install -Dm644 icons/redragon-volume-sync.svg /app/share/icons/hicolor/scalable/apps/com.github.cristianocps.RedragonHSCompanion.svg
+    sources:
+      - type: dir
+        path: .
