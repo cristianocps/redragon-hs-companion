@@ -26,78 +26,13 @@ Redragon wireless headsets have an issue on Linux where PipeWire only controls o
 
 ## Installation
 
-Prebuilt packages are published on the [releases page](https://github.com/cristianocps/redragon-hs-companion/releases/latest). Choose the method that matches your platform:
+The easiest way to install is the [quick installer](#quick-install-curl) — one command, no repository clone needed. Platform-specific prebuilt packages are also published on the [releases page](https://github.com/cristianocps/redragon-hs-companion/releases/latest):
 
+- **Any distro (recommended)** → [quick install (curl)](#quick-install-curl)
 - **Debian/Ubuntu** → [.deb package](#debian--ubuntu-deb)
 - **GNOME / Cinnamon** → [prebuilt widget zips](#gnome--cinnamon-widgets)
 - **COSMIC** → [prebuilt applet binary](#cosmic-prebuilt-applet)
 - **Flatpak** → [experimental bundle](#flatpak-experimental)
-- **KDE Plasma and everything else** → [quick install (curl)](#quick-install-curl)
-
-### Debian / Ubuntu (.deb)
-
-The `.deb` includes the CLI, both daemons and the systemd user units (desktop widgets are not included — grab them from the sections below). Works on any apt-based distro (Debian, Ubuntu, Mint, Pop!_OS, ...):
-
-```bash
-DEB_URL=$(curl -s https://api.github.com/repos/cristianocps/redragon-hs-companion/releases/latest \
-  | grep browser_download_url | grep '\.deb"' | cut -d'"' -f4)
-wget "$DEB_URL"
-sudo apt install ./redragon-volume-sync_*_all.deb
-```
-
-Then enable the daemons:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now redragon-volume-sync.service
-systemctl --user enable --now redragon-control-daemon.service
-```
-
-### GNOME / Cinnamon widgets
-
-Requires the core installed first (via .deb above or from source).
-
-**GNOME Shell 45+:**
-
-```bash
-wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-sync-gnome-extension.zip
-mkdir -p ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano
-unzip redragon-volume-sync-gnome-extension.zip -d ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano/
-```
-
-Log out and back in (Wayland) or restart the Shell (X11: `Alt+F2` → `r`), then enable "Redragon HS Companion" in the Extensions app or with `gnome-extensions enable redragon-volume-sync@cristiano`.
-
-**Cinnamon 5.0+:**
-
-```bash
-wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-sync-cinnamon-applet.zip
-mkdir -p ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano
-unzip redragon-volume-sync-cinnamon-applet.zip -d ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano/
-```
-
-Then add the applet in Settings → Applets.
-
-### COSMIC (prebuilt applet)
-
-Requires the core installed first (via .deb above or from source). No Rust toolchain needed:
-
-```bash
-wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-applet-linux-x86_64.tar.gz
-tar -xzf redragon-volume-applet-linux-x86_64.tar.gz
-install -Dm755 redragon-volume-applet ~/.local/bin/redragon-volume-applet
-install -Dm644 com.github.cristianocps.RedragonVolume.desktop ~/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop
-```
-
-Then add the applet in Settings → Panel → Applets.
-
-### Flatpak (experimental)
-
-```bash
-wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-hs-companion.flatpak
-flatpak install --user ./redragon-hs-companion.flatpak
-```
-
-**Limitations:** the sandboxed bundle ships only the CLI/daemon binaries — no systemd integration and no desktop widgets — and the sandboxed CLI cannot reach the host daemon's socket. Prefer the `.deb` or the source install for real use.
 
 ### Quick install (curl)
 
@@ -162,6 +97,71 @@ background daemons — your desktop's native volume control simply works.
 Note: a kernel-side quirk for this chipset is being discussed upstream
 ([LKML](https://lkml.org/lkml/2026/7/5/558)); once merged in mainline kernels,
 the workaround may become unnecessary.
+
+### Debian / Ubuntu (.deb)
+
+The `.deb` includes the CLI, both daemons and the systemd user units (desktop widgets are not included — grab them from the sections below). Works on any apt-based distro (Debian, Ubuntu, Mint, Pop!_OS, ...):
+
+```bash
+DEB_URL=$(curl -s https://api.github.com/repos/cristianocps/redragon-hs-companion/releases/latest \
+  | grep browser_download_url | grep '\.deb"' | cut -d'"' -f4)
+wget "$DEB_URL"
+sudo apt install ./redragon-volume-sync_*_all.deb
+```
+
+Then enable the daemons:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now redragon-volume-sync.service
+systemctl --user enable --now redragon-control-daemon.service
+```
+
+### GNOME / Cinnamon widgets
+
+Requires the core installed first (via the quick install or the .deb above).
+
+**GNOME Shell 45+:**
+
+```bash
+wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-sync-gnome-extension.zip
+mkdir -p ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano
+unzip redragon-volume-sync-gnome-extension.zip -d ~/.local/share/gnome-shell/extensions/redragon-volume-sync@cristiano/
+```
+
+Log out and back in (Wayland) or restart the Shell (X11: `Alt+F2` → `r`), then enable "Redragon HS Companion" in the Extensions app or with `gnome-extensions enable redragon-volume-sync@cristiano`.
+
+**Cinnamon 5.0+:**
+
+```bash
+wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-sync-cinnamon-applet.zip
+mkdir -p ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano
+unzip redragon-volume-sync-cinnamon-applet.zip -d ~/.local/share/cinnamon/applets/redragon-volume-sync@cristiano/
+```
+
+Then add the applet in Settings → Applets.
+
+### COSMIC (prebuilt applet)
+
+Requires the core installed first (via the quick install or the .deb above). No Rust toolchain needed:
+
+```bash
+wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-volume-applet-linux-x86_64.tar.gz
+tar -xzf redragon-volume-applet-linux-x86_64.tar.gz
+install -Dm755 redragon-volume-applet ~/.local/bin/redragon-volume-applet
+install -Dm644 com.github.cristianocps.RedragonVolume.desktop ~/.local/share/applications/com.github.cristianocps.RedragonVolume.desktop
+```
+
+Then add the applet in Settings → Panel → Applets.
+
+### Flatpak (experimental)
+
+```bash
+wget https://github.com/cristianocps/redragon-hs-companion/releases/latest/download/redragon-hs-companion.flatpak
+flatpak install --user ./redragon-hs-companion.flatpak
+```
+
+**Limitations:** the sandboxed bundle ships only the CLI/daemon binaries — no systemd integration and no desktop widgets — and the sandboxed CLI cannot reach the host daemon's socket. Prefer the quick install or the `.deb` for real use.
 
 ## Usage
 
